@@ -1,0 +1,142 @@
+:root {
+  /* Direction A — "Quiet" editorial palette */
+  --paper: #f6f3ec;
+  --panel: #efeae0;
+  --panel-2: #f1ece2;
+  --card: #ffffff;
+  --line: #e8e2d6;
+  --line-2: #e3ddd0;
+  --ink: #2c2a26;
+  --ink-2: #3f3a32;
+  --muted: #82796b;
+  --muted-2: #928b7c;
+  --faint: #9a9384;
+
+  --accent: #6f8f72;
+  --accent-deep: #4d6b50;
+  --accent-tint: #e4ede2;
+
+  --over: #b25548;
+  --over-tint: #f1e1de;
+  --due: #b8893f;
+  --due-tint: #f4ecd9;
+  --ok: #5b8a5e;
+  --ok-tint: #e4ede2;
+
+  --serif: "Newsreader", Georgia, serif;
+  --sans: "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100vh;
+}
+
+/* Custom scrollbars to match the warm theme */
+.scroll {
+  overflow-y: auto;
+}
+.scroll::-webkit-scrollbar {
+  width: 9px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: #ddd6c8;
+  border-radius: 9px;
+}
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.mono-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+}
+
+.pill {
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 20px;
+}
+
+.ghost-btn {
+  border: 1px solid #9bb59e;
+  color: var(--accent-deep);
+  background: transparent;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ghost-btn:hover {
+  background: var(--accent-tint);
+}
+
+.ghost-btn-sm {
+  border: 1px solid var(--line-2);
+  color: var(--muted);
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.text-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.solid-btn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.solid-btn:hover {
+  background: var(--accent-deep);
+}
+
+.del-ghost {
+  border: 1px solid #dbb8b4;
+  color: var(--over);
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.del-ghost:hover {
+  background: var(--over-tint);
+}

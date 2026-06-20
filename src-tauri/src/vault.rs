@@ -1,0 +1,496 @@
+use crate::models::*;
+use chrono::{Local, NaiveDate};
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+/// Split a markdown document into (frontmatter, body).
+/// Frontmatter is the block between the first `---` fences.
+pub fn parse_frontmatter(content: &str) -> (Option<Frontmatter>, String) {
+    if let Some(stripped) = content.strip_prefix("---") {
+        if let Some(end) = stripped.find("\n---") {
+            let fm_str = stripped[..end].trim();
+            let body = stripped[end + 4..].trim_start_matches('\n').to_string();
+            let fm = serde_yaml::from_str::<Frontmatter>(fm_str).ok();
+            return (fm, body);
+        }
+    }
+    (None, content.to_string())
+}
+
+/// Split a `## ` heading like "2026-06-16 — Roadmap" into (date, title).
+fn split_heading(h: &str) -> (String, String) {
+    let h = h.trim();
+    for sep in [" — ", " – ", " - "] {
+        if let Some(idx) = h.find(sep) {
+            return (
+                h[..idx].trim().to_string(),
+                h[idx + sep.len()..].trim().to_string(),
+            );
+        }
+    }
+    (h.to_string(), String::new())
+}
+
+/// Parse the body of a person file into conversations.
+/// Each conversation starts at a `## ` heading; `- [ ]` / `- [x]` lines
+/// become action items, everything else is body prose.
+pub fn parse_conversations(body: &str) -> Vec<Conversation> {
+    let mut out: Vec<Conversation> = Vec::new();
+    let mut cur: Option<Conversation> = None;
+    let mut body_lines: Vec<String> = Vec::new();
+
+    let flush = |cur: &mut Option<Conversation>, body_lines: &mut Vec<String>, out: &mut Vec<Conversation>| {
+        if let Some(mut c) = cur.take() {
+            c.body = body_lines.join("\n").trim().to_string();
+            out.push(c);
+        }
+        body_lines.clear();
+    };
+
+    for line in body.lines() {
+        if let Some(h) = line.strip_prefix("## ") {
+            flush(&mut cur, &mut body_lines, &mut out);
+            let (date, title) = split_heading(h);
+            cur = Some(Conversation { date, title, body: String::new(), actions: Vec::new() });
+        } else if let Some(c) = cur.as_mut() {
+            let t = line.trim_start();
+            if let Some(rest) = t.strip_prefix("- [ ] ") {
+                c.actions.push(ActionItem { text: rest.trim().to_string(), done: false });
+            } else if let Some(rest) = t
+                .strip_prefix("- [x] ")
+                .or_else(|| t.strip_prefix("- [X] "))
+            {
+                c.actions.push(ActionItem { text: rest.trim().to_string(), done: true });
+            } else {
+                body_lines.push(line.to_string());
+            }
+        }
+    }
+    flush(&mut cur, &mut body_lines, &mut out);
+    out
+}
+
+/// Derive a cadence status from the last-met date and cadence interval.
+pub fn compute_status(last_met: &Option<String>, cadence_weeks: u32) -> String {
+    match last_met {
+        None => "due".to_string(),
+        Some(d) => match NaiveDate::parse_from_str(d, "%Y-%m-%d") {
+            Ok(date) => {
+                let today = Local::now().date_naive();
+                let days = (today - date).num_days();
+                let cadence_days = (cadence_weeks as i64) * 7;
+                if days > cadence_days {
+                    "over".to_string()
+                } else if days >= cadence_days - 3 {
+                    "due".to_string()
+                } else {
+                    "ok".to_string()
+                }
+            }
+            Err(_) => "ok".to_string(),
+        },
+    }
+}
+
+fn slug_from_path(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+fn person_from_file(path: &Path) -> io::Result<Person> {
+    let content = fs::read_to_string(path)?;
+    let (fm, body) = parse_frontmatter(&content);
+    let conversations = parse_conversations(&body);
+    let last_met = conversations.first().map(|c| c.date.clone());
+    let fm = fm.unwrap_or(Frontmatter {
+        name: slug_from_path(path),
+        role: String::new(),
+        bio: String::new(),
+        joined: String::new(),
+        cadence_weeks: 2,
+        color: String::new(),
+        next_1on1: String::new(),
+        group: String::new(),
+    });
+    let status = compute_status(&last_met, fm.cadence_weeks);
+    Ok(Person {
+        slug: slug_from_path(path),
+        name: fm.name,
+        role: fm.role,
+        bio: fm.bio,
+        joined: fm.joined,
+        cadence_weeks: fm.cadence_weeks,
+        color: fm.color,
+        next_1on1: fm.next_1on1,
+        group: fm.group,
+        last_met,
+        status,
+        conversations,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Vault operations
+// ---------------------------------------------------------------------------
+
+pub fn people_dir(vault: &Path) -> PathBuf {
+    vault.join("people")
+}
+
+pub fn tasks_file(vault: &Path) -> PathBuf {
+    vault.join("tasks.md")
+}
+
+pub fn list_people(vault: &Path) -> io::Result<Vec<Person>> {
+    let dir = people_dir(vault);
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut people = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            if let Ok(p) = person_from_file(&path) {
+                people.push(p);
+            }
+        }
+    }
+    people.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(people)
+}
+
+pub fn get_person(vault: &Path, slug: &str) -> io::Result<Person> {
+    person_from_file(&people_dir(vault).join(format!("{slug}.md")))
+}
+
+/// Render a conversation back to markdown.
+fn render_conversation(c: &Conversation) -> String {
+    let mut s = format!("## {} — {}\n\n", c.date, c.title);
+    if !c.body.trim().is_empty() {
+        s.push_str(c.body.trim());
+        s.push_str("\n\n");
+    }
+    for a in &c.actions {
+        let mark = if a.done { "x" } else { " " };
+        s.push_str(&format!("- [{}] {}\n", mark, a.text));
+    }
+    if !c.actions.is_empty() {
+        s.push('\n');
+    }
+    s
+}
+
+/// Prepend a new conversation to a person's file (newest first).
+pub fn append_conversation(vault: &Path, slug: &str, conv: &Conversation) -> io::Result<()> {
+    let path = people_dir(vault).join(format!("{slug}.md"));
+    let content = fs::read_to_string(&path)?;
+    let (fm_raw, body) = split_raw_frontmatter(&content);
+    let new_body = format!("{}\n{}", render_conversation(conv).trim_end(), body.trim_start());
+    let out = match fm_raw {
+        Some(fm) => format!("---\n{}\n---\n\n{}\n", fm.trim(), new_body.trim()),
+        None => format!("{}\n", new_body.trim()),
+    };
+    fs::write(path, out)
+}
+
+/// Like parse_frontmatter but returns the raw YAML string (so we can rewrite the body untouched).
+fn split_raw_frontmatter(content: &str) -> (Option<String>, String) {
+    if let Some(stripped) = content.strip_prefix("---") {
+        if let Some(end) = stripped.find("\n---") {
+            let fm_str = stripped[..end].trim().to_string();
+            let body = stripped[end + 4..].trim_start_matches('\n').to_string();
+            return (Some(fm_str), body);
+        }
+    }
+    (None, content.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+const COLUMNS: [(&str, &str); 3] = [("To do", "todo"), ("In progress", "doing"), ("Done", "done")];
+
+fn parse_task_meta(line: &str) -> (String, Task) {
+    // line content after "- [ ] " / "- [x] "
+    let mut person = String::new();
+    let mut due = String::new();
+    let mut priority = String::new();
+    let mut title_parts: Vec<&str> = Vec::new();
+    for tok in line.split_whitespace() {
+        if let Some(v) = tok.strip_prefix("@person:") {
+            person = v.replace('_', " ");
+        } else if let Some(v) = tok.strip_prefix("@due:") {
+            due = v.to_string();
+        } else if let Some(v) = tok.strip_prefix("@priority:") {
+            priority = v.to_string();
+        } else {
+            title_parts.push(tok);
+        }
+    }
+    (
+        title_parts.join(" "),
+        Task {
+            title: String::new(),
+            person,
+            due,
+            priority,
+            column: String::new(),
+            done: false,
+            completed_at: String::new(),
+            archived: false,
+        },
+    )
+}
+
+pub fn list_tasks(vault: &Path) -> io::Result<Vec<Task>> {
+    let path = tasks_file(vault);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(path)?;
+    let mut tasks = Vec::new();
+    let mut column = "todo".to_string();
+    for line in content.lines() {
+        if let Some(h) = line.strip_prefix("## ") {
+            let h = h.trim();
+            column = COLUMNS
+                .iter()
+                .find(|(label, _)| label.eq_ignore_ascii_case(h))
+                .map(|(_, key)| key.to_string())
+                .unwrap_or_else(|| h.to_lowercase());
+            continue;
+        }
+        let t = line.trim_start();
+        let (done, rest) = if let Some(r) = t.strip_prefix("- [ ] ") {
+            (false, r)
+        } else if let Some(r) = t.strip_prefix("- [x] ").or_else(|| t.strip_prefix("- [X] ")) {
+            (true, r)
+        } else {
+            continue;
+        };
+        let (title, mut task) = parse_task_meta(rest);
+        for tok in rest.split_whitespace() {
+            if let Some(v) = tok.strip_prefix("@done:") {
+                task.completed_at = v.to_string();
+            } else if let Some(v) = tok.strip_prefix("@archived:") {
+                task.archived = v.eq_ignore_ascii_case("true");
+            }
+        }
+        task.title = title;
+        task.column = column.clone();
+        task.done = done;
+        tasks.push(task);
+    }
+    Ok(tasks)
+}
+
+pub fn save_tasks(vault: &Path, tasks: &[Task]) -> io::Result<()> {
+    let mut out = String::from("# Tasks\n\n");
+    for (label, key) in COLUMNS {
+        out.push_str(&format!("## {}\n\n", label));
+        for t in tasks.iter().filter(|t| t.column == key) {
+            let mark = if t.done { "x" } else { " " };
+            let mut line = format!("- [{}] {}", mark, t.title);
+            if !t.person.is_empty() {
+                line.push_str(&format!(" @person:{}", t.person.replace(' ', "_")));
+            }
+            if !t.due.is_empty() {
+                line.push_str(&format!(" @due:{}", t.due));
+            }
+            if !t.priority.is_empty() {
+                line.push_str(&format!(" @priority:{}", t.priority));
+            }
+            if !t.completed_at.is_empty() {
+                line.push_str(&format!(" @done:{}", t.completed_at));
+            }
+            if t.archived {
+                line.push_str(" @archived:true");
+            }
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    fs::write(tasks_file(vault), out.trim_end().to_string() + "\n")
+}
+
+/// Ensure the vault folder structure exists.
+pub fn ensure_vault(vault: &Path) -> io::Result<()> {
+    fs::create_dir_all(people_dir(vault))?;
+    if !tasks_file(vault).exists() {
+        save_tasks(vault, &[])?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Person CRUD
+// ---------------------------------------------------------------------------
+
+fn make_slug(name: &str) -> String {
+    let s: String = name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    s.split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn write_frontmatter(fm: &Frontmatter) -> io::Result<String> {
+    serde_yaml::to_string(fm)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .map(|s| s.trim_end().to_string())
+}
+
+pub fn create_person(vault: &Path, fm: &Frontmatter) -> io::Result<Person> {
+    let dir = people_dir(vault);
+    fs::create_dir_all(&dir)?;
+    let slug = make_slug(&fm.name);
+    if slug.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "name produces empty slug"));
+    }
+    let path = dir.join(format!("{slug}.md"));
+    if path.exists() {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "person already exists"));
+    }
+    let yaml = write_frontmatter(fm)?;
+    fs::write(&path, format!("---\n{yaml}\n---\n"))?;
+    person_from_file(&path)
+}
+
+pub fn delete_person(vault: &Path, slug: &str) -> io::Result<()> {
+    fs::remove_file(people_dir(vault).join(format!("{slug}.md")))
+}
+
+pub fn update_person(vault: &Path, slug: &str, fm: &Frontmatter) -> io::Result<Person> {
+    let path = people_dir(vault).join(format!("{slug}.md"));
+    let content = fs::read_to_string(&path)?;
+    let (_, body) = split_raw_frontmatter(&content);
+    let yaml = write_frontmatter(fm)?;
+    let body_trim = body.trim();
+    let out = if body_trim.is_empty() {
+        format!("---\n{yaml}\n---\n")
+    } else {
+        format!("---\n{yaml}\n---\n\n{body_trim}\n")
+    };
+    fs::write(&path, out)?;
+    person_from_file(&path)
+}
+
+// ---------------------------------------------------------------------------
+// Folders
+// ---------------------------------------------------------------------------
+
+fn folders_file(vault: &Path) -> PathBuf {
+    vault.join("folders.json")
+}
+
+pub fn list_folders(vault: &Path) -> io::Result<Vec<String>> {
+    let path = folders_file(vault);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(path)?;
+    serde_json::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+
+pub fn create_folder(vault: &Path, name: &str) -> io::Result<()> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Ok(());
+    }
+    let mut folders = list_folders(vault)?;
+    if folders.contains(&name) {
+        return Ok(());
+    }
+    folders.push(name);
+    folders.sort();
+    let json = serde_json::to_string_pretty(&folders)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    fs::write(folders_file(vault), json)
+}
+
+pub fn delete_folder(vault: &Path, name: &str) -> io::Result<()> {
+    let mut folders = list_folders(vault)?;
+    folders.retain(|f| f != name);
+    let json = serde_json::to_string_pretty(&folders)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    fs::write(folders_file(vault), json)
+}
+
+// ---------------------------------------------------------------------------
+// Conversation update
+// ---------------------------------------------------------------------------
+
+pub fn update_conversation(
+    vault: &Path,
+    slug: &str,
+    orig_date: &str,
+    orig_title: &str,
+    updated: &Conversation,
+) -> io::Result<()> {
+    let path = people_dir(vault).join(format!("{slug}.md"));
+    let content = fs::read_to_string(&path)?;
+    let (fm_raw, body) = split_raw_frontmatter(&content);
+    let conversations = parse_conversations(&body);
+    let new_body: String = conversations
+        .iter()
+        .map(|c| {
+            if c.date == orig_date && c.title == orig_title {
+                render_conversation(updated)
+            } else {
+                render_conversation(c)
+            }
+        })
+        .collect();
+    let out = match fm_raw {
+        Some(fm) => {
+            let body_trim = new_body.trim();
+            if body_trim.is_empty() {
+                format!("---\n{}\n---\n", fm.trim())
+            } else {
+                format!("---\n{}\n---\n\n{body_trim}\n", fm.trim())
+            }
+        }
+        None => format!("{}\n", new_body.trim()),
+    };
+    fs::write(path, out)
+}
+
+// ---------------------------------------------------------------------------
+// Conversation delete
+// ---------------------------------------------------------------------------
+
+pub fn delete_conversation(vault: &Path, slug: &str, date: &str, title: &str) -> io::Result<()> {
+    let path = people_dir(vault).join(format!("{slug}.md"));
+    let content = fs::read_to_string(&path)?;
+    let (fm_raw, body) = split_raw_frontmatter(&content);
+    let conversations = parse_conversations(&body);
+    let remaining: Vec<&Conversation> = conversations
+        .iter()
+        .filter(|c| !(c.date == date && c.title == title))
+        .collect();
+    let new_body: String = remaining.iter().map(|c| render_conversation(c)).collect();
+    let out = match fm_raw {
+        Some(fm) => {
+            let body_trim = new_body.trim();
+            if body_trim.is_empty() {
+                format!("---\n{}\n---\n", fm.trim())
+            } else {
+                format!("---\n{}\n---\n\n{body_trim}\n", fm.trim())
+            }
+        }
+        None => format!("{}\n", new_body.trim()),
+    };
+    fs::write(path, out)
+}

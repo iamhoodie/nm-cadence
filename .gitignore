@@ -1,0 +1,8 @@
+# Build artifacts
+/dist
+/node_modules
+.DS_Store
+
+# Rust / Tauri
+/src-tauri/target
+/src-tauri/gen/schemas
