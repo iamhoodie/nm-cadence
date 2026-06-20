@@ -8,6 +8,7 @@ on:
 
 jobs:
   publish-tauri:
+    name: Release ${{ matrix.label }}
     permissions:
       contents: write
 
@@ -15,10 +16,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+          - label: macOS Apple Silicon (M1-M4)
+            platform: macos-latest
+            target: aarch64-apple-darwin
+          - label: macOS Intel
+            platform: macos-latest
+            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
@@ -40,7 +43,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -57,8 +60,8 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "SideEye v__VERSION__"
-          releaseBody: "See assets below for this release."
+          releaseBody: "Release includes macOS Apple Silicon (M1-M4) and macOS Intel builds."
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.args }}
+          args: --target ${{ matrix.target }}
           uploadUpdaterJson: true
