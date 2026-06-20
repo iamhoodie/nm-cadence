@@ -34,5 +34,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGNzk4QjFDMjM1QzJFNTgKUldSWUxsd2pISXQ1Nzc0eVpMamsrS3VuOVJaWUVPQjlXMlg5aHRaNEZGN0ZXM0oxbDhFMlFJZUcK",
+      "endpoints": [
+        "https://github.com/iamhoodie/nm-cadence/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
