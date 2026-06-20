@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
-  import { folders, people, screen, tasks, vaultPath } from "../stores.js";
+  import { ChevronLeft, ChevronRight } from "lucide-svelte";
+  import { folders, people, screen, tasks, vaultPath, sidebarCollapsed, toggleSidebar } from "../stores.js";
   import {
     createVaultBackup,
     getAppSettings,
@@ -20,6 +21,7 @@
   let error = $state("");
   let autoArchiveDone = $state(true);
   let autoArchiveDays = $state(7);
+  let stale1on1Days = $state(14);
 
   async function refreshVaultData() {
     people.set(await listPeople());
@@ -40,6 +42,7 @@
       const settings = await getAppSettings();
       autoArchiveDone = settings.auto_archive_done;
       autoArchiveDays = settings.auto_archive_days;
+      stale1on1Days = settings.stale_1on1_days;
       message = "Vault location updated.";
     } catch (err) {
       error = err?.message || String(err);
@@ -70,11 +73,13 @@
       const saved = await saveAppSettings({
         auto_archive_done: autoArchiveDone,
         auto_archive_days: Math.max(1, Number(autoArchiveDays) || 7),
+        stale_1on1_days: Math.max(1, Number(stale1on1Days) || 14),
       });
       autoArchiveDone = saved.auto_archive_done;
       autoArchiveDays = saved.auto_archive_days;
+      stale1on1Days = saved.stale_1on1_days;
       tasks.set(await listTasks());
-      message = "Archive settings updated.";
+      message = "Settings updated.";
     } catch (err) {
       error = err?.message || String(err);
     } finally {
@@ -87,6 +92,7 @@
       const settings = await getAppSettings();
       autoArchiveDone = settings.auto_archive_done;
       autoArchiveDays = settings.auto_archive_days;
+      stale1on1Days = settings.stale_1on1_days;
     } catch (err) {
       error = err?.message || String(err);
     }
@@ -94,9 +100,16 @@
 </script>
 
 <header>
-  <div>
-    <h1>Settings</h1>
-    <p>Choose where SideEye stores your vault and create a backup when you need one.</p>
+  <div class="header-left">
+    <button class="sidebar-toggle-btn" onclick={toggleSidebar} title={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+      <span class="sidebar-toggle-mark" class:sidebar-toggle-mark--collapsed={$sidebarCollapsed}>
+        <ChevronLeft size={16} strokeWidth={1.8} />
+      </span>
+    </button>
+    <div>
+      <h1>Settings</h1>
+      <p>Choose where SideEye stores your vault and create a backup when you need one.</p>
+    </div>
   </div>
 </header>
 
@@ -145,6 +158,27 @@
   <section class="card">
     <div class="card-head">
       <div>
+        <div class="mono-label">1:1 CADENCE</div>
+        <div class="card-title">Dashboard attention threshold</div>
+      </div>
+      <button class="ghost-btn" onclick={saveArchiveSettings} disabled={savingArchive}>
+        {savingArchive ? "Saving…" : "Save setting"}
+      </button>
+    </div>
+    <div class="archive-grid">
+      <label class="days-field">
+        <span>Flag people after days without a 1:1</span>
+        <input type="number" min="1" bind:value={stale1on1Days} />
+      </label>
+    </div>
+    <div class="card-copy">
+      The dashboard will surface people whose last logged 1:1 is older than this threshold, plus anyone with no 1:1 logged yet.
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <div>
         <div class="mono-label">BACKUP</div>
         <div class="card-title">Create a snapshot</div>
       </div>
@@ -165,7 +199,7 @@
     <div class="notice notice--error">{error}</div>
   {/if}
 
-  <button class="text-btn back-btn" onclick={() => screen.set("people")}>Back to people</button>
+  <button class="text-btn back-btn" onclick={() => screen.set("dashboard")}>Back to dashboard</button>
 </div>
 
 <style>
@@ -175,6 +209,49 @@
     align-items: center;
     padding: 22px 32px 18px;
     border-bottom: 1px solid var(--line);
+  }
+  .header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .sidebar-toggle-btn {
+    border: 1px solid var(--line);
+    background: rgba(251, 247, 240, 0.94);
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    color: var(--muted-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(58, 53, 45, 0.08);
+  }
+  .sidebar-toggle-btn:hover,
+  .sidebar-toggle-btn:focus-visible {
+    background: #f2eadb;
+    color: var(--ink);
+    outline: none;
+  }
+  .sidebar-toggle-mark {
+    width: 16px;
+    height: 16px;
+    display: block;
+    transition: transform 0.16s ease;
+  }
+  .sidebar-toggle-mark--collapsed {
+    transform: rotate(180deg);
+  }
+  .sidebar-toggle-mark :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
   h1 {
     font-family: var(--serif);

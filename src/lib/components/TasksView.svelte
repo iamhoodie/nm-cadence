@@ -1,6 +1,9 @@
 <script>
+  import { tick } from "svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
-  import { appAction, clearAppAction, tasks, people, folders, priorityColor, daysSince, dayLabel, initials, colorForPerson } from "../stores.js";
+  import TaskCard from "./TaskCard.svelte";
+  import { Trash2, ChevronLeft, ChevronRight } from "lucide-svelte";
+  import { appAction, clearAppAction, tasks, people, folders, priorityColor, daysSince, dayLabel, initials, colorForPerson, sidebarCollapsed, toggleSidebar, selectedTaskTitle } from "../stores.js";
   import { saveTasks } from "../api.js";
 
   const columns = [
@@ -21,6 +24,59 @@
   let priority = $state("med");
   let peopleInput = $state("");  // autocomplete input for adding people
   let peoplePickerOpen = $state(false);
+  let peopleInputEl = $state();
+  let peoplePickerPos = $state({ top: 0, left: 0, width: 0 });
+
+  // Description rich editor
+  let description = $state("");
+  let descEditorElement = $state();
+
+
+  // Date picker portal positioning
+  let dateBtnEl = $state();
+  let datePopoverPos = $state({ top: 0, left: 0, width: 0 });
+
+  // View modal (read-only card detail)
+  let viewModalOpen = $state(false);
+  let viewingIndex = $state(-1);
+
+  function syncDescFromEditor() {
+    description = descEditorElement?.innerHTML || "";
+  }
+
+  async function syncDescEditorFromState() {
+    await tick();
+    if (descEditorElement) descEditorElement.innerHTML = description || "<p></p>";
+  }
+
+  function runDescEditor(command, value = null) {
+    descEditorElement?.focus();
+    document.execCommand(command, false, value);
+    syncDescFromEditor();
+  }
+
+  function formatDescBlock(tag) {
+    descEditorElement?.focus();
+    document.execCommand("formatBlock", false, tag);
+    syncDescFromEditor();
+  }
+
+  function openView(index) {
+    if (dragMoved) { dragMoved = false; return; }
+    viewingIndex = index;
+    viewModalOpen = true;
+  }
+
+  function closeView() {
+    viewModalOpen = false;
+    viewingIndex = -1;
+  }
+
+  function openEditFromView() {
+    const idx = viewingIndex;
+    closeView();
+    openEdit(idx);
+  }
 
   // Inline quick-add in the "todo" column
   let quickTitle  = $state("");
@@ -37,6 +93,26 @@
   let confirmState = $state(null);
   let handledActionToken = $state(0);
   let pointerDrag = $state(null);
+
+  // Task highlight (from dashboard navigation)
+  let highlightedTitle = $state("");
+  let highlightTimeout = null;
+
+  $effect(() => {
+    const title = $selectedTaskTitle;
+    if (!title) return;
+    highlightedTitle = title;
+    selectedTaskTitle.set("");
+    if (highlightTimeout) window.clearTimeout(highlightTimeout);
+    tick().then(() => {
+      const el = document.querySelector(".card--highlighted");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    highlightTimeout = window.setTimeout(() => {
+      highlightedTitle = "";
+      highlightTimeout = null;
+    }, 2000);
+  });
 
   // ── Derived ────────────────────────────────────────────────────────────
   const todoTasks  = $derived($tasks.map((t, i) => ({ task: t, index: i })).filter(({ task }) => task.column === "todo"));
@@ -139,7 +215,20 @@
 
   function formatTaskDue(task) {
     if (!task?.due) return "";
-    return task.due_time ? `${task.due} ${task.due_time}` : task.due;
+    const formattedDate = dueDisplay(task.due);
+    if (!task.due_time) return formattedDate;
+
+    const [hoursText, minutesText] = task.due_time.split(":");
+    const hours = Number(hoursText);
+    const minutes = Number(minutesText);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+      return `${formattedDate} ${task.due_time}`;
+    }
+
+    const meridiem = hours >= 12 ? "PM" : "AM";
+    const hour12 = hours % 12 || 12;
+    const formattedTime = `${hour12}:${String(minutes).padStart(2, "0")} ${meridiem}`;
+    return `${formattedDate} ${formattedTime}`;
   }
 
   function taskDueDate(task) {
@@ -159,9 +248,12 @@
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+    const weekEnd = new Date(todayStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
 
     if (dueStart < todayStart || dueDate.getTime() < now.getTime()) return "overdue";
     if (dueStart.getTime() === todayStart.getTime()) return "today";
+    if (dueStart <= weekEnd) return "week";
     return "";
   }
 
@@ -218,10 +310,11 @@
   function openNew() {
     creating = true; editingIndex = -1; modalOpen = true;
     title = ""; taskPeople = []; due = ""; priority = "med"; peopleInput = "";
-    dueTime = "";
+    dueTime = ""; description = "";
     peoplePickerOpen = false;
     datePickerOpen = false;
     visibleMonth = startOfMonthIso(todayIso());
+    syncDescEditorFromState();
   }
 
   function openEdit(index) {
@@ -233,16 +326,19 @@
     due = task.due || "";
     dueTime = task.due_time || "";
     priority = task.priority || "med";
+    description = task.description || "";
     peopleInput = "";
     peoplePickerOpen = false;
     datePickerOpen = false;
     visibleMonth = startOfMonthIso(task.due || todayIso());
+    syncDescEditorFromState();
   }
 
   function closeModal() {
     modalOpen = false; creating = false; editingIndex = -1;
     peoplePickerOpen = false;
     datePickerOpen = false;
+    description = "";
   }
 
   function addPersonToTask(name) {
@@ -259,6 +355,10 @@
 
   function toggleDatePicker() {
     visibleMonth = startOfMonthIso(due || todayIso());
+    if (!datePickerOpen && dateBtnEl) {
+      const rect = dateBtnEl.getBoundingClientRect();
+      datePopoverPos = { bottom: window.innerHeight - rect.top + 6, left: rect.left };
+    }
     datePickerOpen = !datePickerOpen;
   }
 
@@ -283,10 +383,12 @@
 
   // ── Save/delete ────────────────────────────────────────────────────────
   async function saveEditor() {
+    syncDescFromEditor();
     const next = [...$tasks];
     if (creating) {
       next.unshift({
         title: title.trim() || "Untitled task",
+        description,
         people: [...taskPeople],
         due: due.trim(),
         due_time: dueTime.trim(),
@@ -301,6 +403,7 @@
       next[editingIndex] = {
         ...cur,
         title: title.trim() || cur.title,
+        description,
         people: [...taskPeople],
         due: due.trim(),
         due_time: dueTime.trim(),
@@ -386,6 +489,11 @@
     await persist(reorderTasks($tasks, index, column, targetIndex));
   }
 
+  async function moveTaskInModal(column) {
+    if (editingIndex < 0 || !$tasks[editingIndex]) return;
+    await persist($tasks.map((t, i) => i === editingIndex ? applyColumn(t, column) : t));
+  }
+
   async function archiveGroup(date) {
     await persist($tasks.map((t) =>
       t.column === "done" && t.completed_at === date ? { ...t, archived: true } : t
@@ -416,11 +524,7 @@
   }
 
   function maybeOpenEdit(index) {
-    if (dragMoved) {
-      dragMoved = false;
-      return;
-    }
-    openEdit(index);
+    openView(index);
   }
 
   function updateDropColumnAtPoint(clientX, clientY) {
@@ -510,9 +614,16 @@
 </script>
 
 <header>
-  <div>
-    <h1>Tasks</h1>
-    <p>Track follow-ups, active work, and completed items</p>
+  <div class="header-left">
+    <button class="sidebar-toggle-btn" onclick={toggleSidebar} title={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+      <span class="sidebar-toggle-mark" class:sidebar-toggle-mark--collapsed={$sidebarCollapsed}>
+        <ChevronLeft size={16} strokeWidth={1.8} />
+      </span>
+    </button>
+    <div>
+      <h1>Tasks</h1>
+      <p>Track follow-ups, active work, and completed items</p>
+    </div>
   </div>
   <button class="ghost-btn" onclick={openNew}>+ New task</button>
 </header>
@@ -555,56 +666,16 @@
       >
         {#each todoTasks as { task, index } (`todo-${index}`)}
           {@const dueState = taskDueState(task)}
-          <div
-            class="card"
-            class:card--overdue={dueState === "overdue"}
-            class:card--due-today={dueState === "today"}
-            class:card--drop-target={activeDropIndex === index && dragIndex !== index}
-            role="button"
-            tabindex="0"
-            data-task-index={index}
-            onpointerdown={(event) => beginPointerDrag(event, index)}
-            onclick={() => maybeOpenEdit(index)}
-            onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
-          >
-            {#if dueState}
-              <span
-                class="card-state-badge"
-                class:card-state-badge--overdue={dueState === "overdue"}
-                class:card-state-badge--today={dueState === "today"}
-                aria-label={dueState === "overdue" ? "Overdue" : "Due today"}
-                title={dueState === "overdue" ? "Overdue" : "Due today"}
-              >
-                {#if dueState === "overdue"}
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M10 4.2a.95.95 0 0 1 .95.95v6.1a.95.95 0 1 1-1.9 0v-6.1A.95.95 0 0 1 10 4.2Zm0 11.6a1.15 1.15 0 1 1 0-2.3 1.15 1.15 0 0 1 0 2.3Z" fill="currentColor"></path>
-                  </svg>
-                {:else}
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M10 3.2a6.8 6.8 0 1 1 0 13.6 6.8 6.8 0 0 1 0-13.6Zm0 1.6a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 0 0 0-10.4Zm.8 1.9v3l2.2 1.7a.8.8 0 0 1-.98 1.26l-.09-.07-2.5-1.9a.8.8 0 0 1-.3-.54V6.7a.8.8 0 0 1 1.6 0Z" fill="currentColor"></path>
-                  </svg>
-                {/if}
-              </span>
-            {/if}
-            <span class="card-bar" style="background:{priorityColor(task.priority)}"></span>
-            <span class="card-title">{task.title}</span>
-            <div class="card-foot">
-              <div class="card-people">
-                {#each taskPeopleList(task).slice(0, 3) as name}
-                  {@const p = personFor(name)}
-                  {#if p}
-                    <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
-                  {:else}
-                    <span class="person-text">{name}</span>
-                  {/if}
-                {/each}
-              </div>
-              {#if task.due}
-                <div class="card-due-row">
-                  <span class="due-tag" class:due-tag--overdue={dueState === "overdue"} class:due-tag--today={dueState === "today"}>{dueTagLabel(task)}</span>
-                </div>
-              {/if}
-            </div>
+          <div data-task-index={index}>
+            <TaskCard
+              {task}
+              dueState={dueState}
+              dueLabel={dueTagLabel(task)}
+              dropTarget={activeDropIndex === index && dragIndex !== index}
+              onPointerDown={(event) => beginPointerDrag(event, index)}
+              onActivate={() => maybeOpenEdit(index)}
+              extraClass={highlightedTitle === task.title ? "card--highlighted" : ""}
+            />
           </div>
         {/each}
 
@@ -630,56 +701,16 @@
       >
         {#each doingTasks as { task, index } (`doing-${index}`)}
           {@const dueState = taskDueState(task)}
-          <div
-            class="card card--doing"
-            class:card--overdue={dueState === "overdue"}
-            class:card--due-today={dueState === "today"}
-            class:card--drop-target={activeDropIndex === index && dragIndex !== index}
-            role="button"
-            tabindex="0"
-            data-task-index={index}
-            onpointerdown={(event) => beginPointerDrag(event, index)}
-            onclick={() => maybeOpenEdit(index)}
-            onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
-          >
-            {#if dueState}
-              <span
-                class="card-state-badge"
-                class:card-state-badge--overdue={dueState === "overdue"}
-                class:card-state-badge--today={dueState === "today"}
-                aria-label={dueState === "overdue" ? "Overdue" : "Due today"}
-                title={dueState === "overdue" ? "Overdue" : "Due today"}
-              >
-                {#if dueState === "overdue"}
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M10 4.2a.95.95 0 0 1 .95.95v6.1a.95.95 0 1 1-1.9 0v-6.1A.95.95 0 0 1 10 4.2Zm0 11.6a1.15 1.15 0 1 1 0-2.3 1.15 1.15 0 0 1 0 2.3Z" fill="currentColor"></path>
-                  </svg>
-                {:else}
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M10 3.2a6.8 6.8 0 1 1 0 13.6 6.8 6.8 0 0 1 0-13.6Zm0 1.6a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 0 0 0-10.4Zm.8 1.9v3l2.2 1.7a.8.8 0 0 1-.98 1.26l-.09-.07-2.5-1.9a.8.8 0 0 1-.3-.54V6.7a.8.8 0 0 1 1.6 0Z" fill="currentColor"></path>
-                  </svg>
-                {/if}
-              </span>
-            {/if}
-            <span class="card-bar" style="background:{priorityColor(task.priority)}"></span>
-            <span class="card-title">{task.title}</span>
-            <div class="card-foot">
-              <div class="card-people">
-                {#each taskPeopleList(task).slice(0, 3) as name}
-                  {@const p = personFor(name)}
-                  {#if p}
-                    <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
-                  {:else}
-                    <span class="person-text">{name}</span>
-                  {/if}
-                {/each}
-              </div>
-              {#if task.due}
-                <div class="card-due-row">
-                  <span class="due-tag" class:due-tag--overdue={dueState === "overdue"} class:due-tag--today={dueState === "today"}>{dueTagLabel(task)}</span>
-                </div>
-              {/if}
-            </div>
+          <div data-task-index={index}>
+            <TaskCard
+              {task}
+              dueState={dueState}
+              dueLabel={dueTagLabel(task)}
+              dropTarget={activeDropIndex === index && dragIndex !== index}
+              onPointerDown={(event) => beginPointerDrag(event, index)}
+              onActivate={() => maybeOpenEdit(index)}
+              extraClass={highlightedTitle === task.title ? "card--doing card--highlighted" : "card--doing"}
+            />
           </div>
         {/each}
 
@@ -713,6 +744,7 @@
               <div
                 class="card card--done"
                 class:card--drop-target={activeDropIndex === index && dragIndex !== index}
+                class:card--highlighted={highlightedTitle === task.title}
                 role="button"
                 tabindex="0"
                 data-task-index={index}
@@ -723,7 +755,7 @@
                 <span class="check-icon">✓</span>
                 <div class="card-done-body">
                   <span class="card-title card-title--done">{task.title}</span>
-                  <span class:person-none={taskPeopleList(task).length === 0} class="person-text">{taskPeopleList(task).length ? taskPeopleList(task).join(", ") : "Unassigned"}</span>
+                  {#if taskPeopleList(task).length}<span class="person-text">{taskPeopleList(task).join(", ")}</span>{/if}
                 </div>
               </div>
             {/each}
@@ -767,7 +799,7 @@
                         <span class="check-icon">✓</span>
                         <div class="card-done-body">
                           <span class="card-title card-title--done">{task.title}</span>
-                          <span class:person-none={taskPeopleList(task).length === 0} class="person-text">{taskPeopleList(task).length ? taskPeopleList(task).join(", ") : "Unassigned"}</span>
+                          {#if taskPeopleList(task).length}<span class="person-text">{taskPeopleList(task).join(", ")}</span>{/if}
                         </div>
                       </div>
                     {/each}
@@ -789,10 +821,45 @@
     <div class="modal">
       <div class="modal-head">{creating ? "New task" : "Edit task"}</div>
 
+      <div class="modal-scroll">
       <label class="field">
         <span>TITLE</span>
-        <textarea class="task-title-input" bind:value={title} placeholder="What needs doing?" rows="3"></textarea>
+        <textarea class="task-title-input" bind:value={title} placeholder="What needs doing?" rows="1"></textarea>
       </label>
+
+      <div class="field">
+        <span>DESCRIPTION</span>
+        <div class="toolbar">
+          <button type="button" class="tool-btn" title="Bold" aria-label="Bold" onclick={() => runDescEditor("bold")}><strong>B</strong></button>
+          <button type="button" class="tool-btn" title="Italic" aria-label="Italic" onclick={() => runDescEditor("italic")}><em>I</em></button>
+          <button type="button" class="tool-btn" title="Underline" aria-label="Underline" onclick={() => runDescEditor("underline")}><u>U</u></button>
+          <div class="tool-sep"></div>
+          <button type="button" class="tool-btn" title="Heading 2" aria-label="Heading 2" onclick={() => formatDescBlock("H2")}>H2</button>
+          <button type="button" class="tool-btn" title="Heading 3" aria-label="Heading 3" onclick={() => formatDescBlock("H3")}>H3</button>
+          <button type="button" class="tool-btn" title="Paragraph" aria-label="Paragraph" onclick={() => formatDescBlock("P")}>¶</button>
+          <div class="tool-sep"></div>
+          <button type="button" class="tool-btn" title="Bulleted list" aria-label="Bulleted list" onclick={() => runDescEditor("insertUnorderedList")}>• List</button>
+          <div class="tool-sep"></div>
+          <div class="tool-color-wrap" title="Font color">
+            <span class="tool-color-meta">
+              <span class="tool-color-label">A</span>
+              <span class="tool-color-copy">Font color</span>
+            </span>
+            <input
+              class="tool-color-input"
+              type="color"
+              value="#000000"
+              oninput={(e) => { descEditorElement?.focus(); document.execCommand("foreColor", false, e.currentTarget.value); syncDescFromEditor(); }}
+            />
+          </div>
+        </div>
+        <div
+          class="desc-editor"
+          contenteditable="true"
+          bind:this={descEditorElement}
+          oninput={syncDescFromEditor}
+        ></div>
+      </div>
 
       <div class="field">
         <span>PEOPLE</span>
@@ -812,10 +879,29 @@
           <div class="people-picker">
             <input
               class="people-input"
+              bind:this={peopleInputEl}
               bind:value={peopleInput}
               placeholder="Add person…"
-              onfocus={() => (peoplePickerOpen = true)}
-              oninput={() => (peoplePickerOpen = true)}
+              onfocus={() => {
+                if (peopleInputEl) {
+                  const rect = peopleInputEl.getBoundingClientRect();
+                  const dropH = Math.min(filteredPeopleOptions.length * 44 + 12, 220);
+                  const spaceBelow = window.innerHeight - rect.bottom - 6;
+                  const top = spaceBelow >= dropH ? rect.bottom + 6 : Math.max(8, rect.top - dropH - 6);
+                  peoplePickerPos = { top, left: rect.left, width: rect.width };
+                }
+                peoplePickerOpen = true;
+              }}
+              oninput={() => {
+                if (peopleInputEl) {
+                  const rect = peopleInputEl.getBoundingClientRect();
+                  const dropH = Math.min(filteredPeopleOptions.length * 44 + 12, 220);
+                  const spaceBelow = window.innerHeight - rect.bottom - 6;
+                  const top = spaceBelow >= dropH ? rect.bottom + 6 : Math.max(8, rect.top - dropH - 6);
+                  peoplePickerPos = { top, left: rect.left, width: rect.width };
+                }
+                peoplePickerOpen = true;
+              }}
               onblur={() => window.setTimeout(() => (peoplePickerOpen = false), 120)}
               onkeydown={(e) => {
                 if (e.key === "Enter") {
@@ -827,60 +913,18 @@
                 }
               }}
             />
-            {#if peoplePickerOpen && filteredPeopleOptions.length}
-              <div class="people-suggestions">
-                {#each filteredPeopleOptions as name}
-                  <button class="people-suggestion" onclick={() => addPersonToTask(name)}>
-                    {#if personFor(name)}
-                      <span class="people-suggestion-av" style="background:{colorForPerson(personFor(name), $folders)}">{initials(personFor(name).name)}</span>
-                    {/if}
-                    <span class="people-suggestion-name">{name}</span>
-                  </button>
-                {/each}
-              </div>
-            {/if}
           </div>
         </div>
       </div>
 
-      <div class="field">
+      <div class="due-time-row">
+      <div class="field" style="flex:1">
         <span>DUE DATE</span>
         <div class="date-picker">
-          <button class="date-input-wrap" onclick={toggleDatePicker} aria-expanded={datePickerOpen}>
+          <button class="date-input-wrap" bind:this={dateBtnEl} onclick={toggleDatePicker} aria-expanded={datePickerOpen}>
             <span class="date-input-icon" aria-hidden="true">◷</span>
             <span class:date-input-empty={!due} class="date-input-label">{dueDisplay(due)}</span>
           </button>
-          {#if datePickerOpen}
-            <div class="date-popover">
-              <div class="date-popover-head">
-                <button class="date-nav-btn" onclick={() => (visibleMonth = shiftMonth(visibleMonth, -1))} aria-label="Previous month">‹</button>
-                <div class="date-month-label">{monthLabel(visibleMonth)}</div>
-                <button class="date-nav-btn" onclick={() => (visibleMonth = shiftMonth(visibleMonth, 1))} aria-label="Next month">›</button>
-              </div>
-              <div class="date-weekdays">
-                {#each ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as weekday}
-                  <span>{weekday}</span>
-                {/each}
-              </div>
-              <div class="date-grid">
-                {#each calendarDays as day}
-                  <button
-                    class="date-day"
-                    class:date-day--muted={!day.inMonth}
-                    class:date-day--selected={day.iso === due}
-                    class:date-day--today={day.iso === todayIso()}
-                    onclick={() => selectDueDate(day.iso)}
-                  >
-                    {day.label}
-                  </button>
-                {/each}
-              </div>
-              <div class="date-popover-actions">
-                <button class="text-btn-sm" onclick={clearDueDate}>Clear</button>
-                <button class="solid-btn-sm" onclick={() => selectDueDate(todayIso())}>Today</button>
-              </div>
-            </div>
-          {/if}
         </div>
       </div>
 
@@ -888,6 +932,7 @@
         <span>TIME</span>
         <input bind:value={dueTime} type="time" />
       </label>
+      </div><!-- end due-time-row -->
 
       <div class="field">
         <span>PRIORITY</span>
@@ -911,27 +956,136 @@
               <button
                 class="move-btn"
                 class:cur={$tasks[editingIndex]?.column === col.key}
-                onclick={() => moveTaskByIndex(editingIndex, col.key)}
+                onclick={() => moveTaskInModal(col.key)}
                 disabled={$tasks[editingIndex]?.column === col.key}
               >{col.label}</button>
             {/each}
           </div>
         </div>
       {/if}
+      </div><!-- end modal-scroll -->
 
       <div class="modal-foot">
         {#if !creating && editingIndex >= 0}
-          <button class="icon-btn icon-btn--danger" onclick={() => requestDeleteTask(editingIndex)} title="Delete task" aria-label="Delete task">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v7h-2v-7Zm4 0h2v7h-2v-7ZM7 10h2v7H7v-7Zm-1 10h12l1-12H5l1 12Z" fill="currentColor"></path>
-            </svg>
-          </button>
+          <button class="del-ghost" onclick={() => requestDeleteTask(editingIndex)}>Delete</button>
         {/if}
         <div class="foot-right">
           <button class="text-btn" onclick={closeModal}>Cancel</button>
           <button class="solid-btn" onclick={saveEditor} disabled={!title.trim()}>Save</button>
         </div>
       </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Task view modal ── -->
+{#if viewModalOpen && $tasks[viewingIndex]}
+  {@const vt = $tasks[viewingIndex]}
+  {@const vtPeople = Array.isArray(vt.people) ? vt.people : (vt.person && vt.person !== "—" ? [vt.person] : [])}
+  <div class="overlay" role="dialog" onclick={(e) => e.target === e.currentTarget && closeView()}>
+    <div class="view-modal">
+      <span class="view-bar" style="background:{priorityColor(vt.priority)}"></span>
+      <div class="view-head">
+        <h2 class="view-title">{vt.title}</h2>
+        <button class="view-close-btn" onclick={closeView} title="Close" aria-label="Close">×</button>
+      </div>
+
+      <div class="view-scroll">
+        {#if vt.description}
+          <div class="view-desc">{@html vt.description}</div>
+        {/if}
+
+        <div class="view-meta">
+          {#if vtPeople.length}
+            <div class="view-meta-row">
+              <span class="view-meta-label">PEOPLE</span>
+              <div class="view-people">
+                {#each vtPeople as name}
+                  {@const p = $people.find((person) => person.name === name)}
+                  {#if p}
+                    <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
+                  {:else}
+                    <span class="view-person-text">{name}</span>
+                  {/if}
+                {/each}
+              </div>
+            </div>
+          {/if}
+          {#if vt.due}
+            <div class="view-meta-row">
+              <span class="view-meta-label">DUE</span>
+              <span class="view-meta-val">{dueTagLabel(vt)}</span>
+            </div>
+          {/if}
+          <div class="view-meta-row">
+            <span class="view-meta-label">PRIORITY</span>
+            <span class="view-priority-dot" style="background:{priorityColor(vt.priority)}"></span>
+            <span class="view-meta-val">{vt.priority || "med"}</span>
+          </div>
+          <div class="view-meta-row">
+            <span class="view-meta-label">STATUS</span>
+            <span class="view-meta-val">{vt.column === "todo" ? "To do" : vt.column === "doing" ? "In progress" : "Done"}</span>
+          </div>
+        </div>
+      </div><!-- end view-scroll -->
+
+      <div class="modal-foot">
+        <div class="foot-right">
+          <button class="text-btn" onclick={closeView}>Close</button>
+          <button class="solid-btn" onclick={openEditFromView}>Edit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Date picker portal (fixed, escapes modal overflow) ── -->
+{#if peoplePickerOpen && filteredPeopleOptions.length}
+  <div
+    class="people-suggestions"
+    style="top:{peoplePickerPos.top}px;left:{peoplePickerPos.left}px;width:{peoplePickerPos.width}px;"
+  >
+    {#each filteredPeopleOptions as name}
+      <button class="people-suggestion" onmousedown={() => addPersonToTask(name)}>
+        {#if personFor(name)}
+          <span class="people-suggestion-av" style="background:{colorForPerson(personFor(name), $folders)}">{initials(personFor(name).name)}</span>
+        {/if}
+        <span class="people-suggestion-name">{name}</span>
+      </button>
+    {/each}
+  </div>
+{/if}
+
+{#if datePickerOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="date-portal-backdrop" onclick={() => (datePickerOpen = false)}></div>
+  <div class="date-popover date-popover--fixed" style="bottom:{datePopoverPos.bottom}px;left:{datePopoverPos.left}px;">
+    <div class="date-popover-head">
+      <button class="date-nav-btn" onclick={() => (visibleMonth = shiftMonth(visibleMonth, -1))} aria-label="Previous month">‹</button>
+      <div class="date-month-label">{monthLabel(visibleMonth)}</div>
+      <button class="date-nav-btn" onclick={() => (visibleMonth = shiftMonth(visibleMonth, 1))} aria-label="Next month">›</button>
+    </div>
+    <div class="date-weekdays">
+      {#each ["S", "M", "T", "W", "T", "F", "S"] as weekday}
+        <span>{weekday}</span>
+      {/each}
+    </div>
+    <div class="date-grid">
+      {#each calendarDays as day}
+        <button
+          class="date-day"
+          class:date-day--muted={!day.inMonth}
+          class:date-day--selected={day.iso === due}
+          class:date-day--today={day.iso === todayIso()}
+          onclick={() => selectDueDate(day.iso)}
+        >
+          {day.label}
+        </button>
+      {/each}
+    </div>
+    <div class="date-popover-actions">
+      <button class="text-btn-sm" onclick={clearDueDate}>Clear</button>
+      <button class="solid-btn-sm" onclick={() => selectDueDate(todayIso())}>Today</button>
     </div>
   </div>
 {/if}
@@ -974,6 +1128,49 @@
     padding: 22px 32px 18px;
     border-bottom: 1px solid var(--line);
     flex-shrink: 0;
+  }
+  .header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .sidebar-toggle-btn {
+    border: 1px solid var(--line);
+    background: rgba(251, 247, 240, 0.94);
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    color: var(--muted-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(58, 53, 45, 0.08);
+  }
+  .sidebar-toggle-btn:hover,
+  .sidebar-toggle-btn:focus-visible {
+    background: #f2eadb;
+    color: var(--ink);
+    outline: none;
+  }
+  .sidebar-toggle-mark {
+    width: 16px;
+    height: 16px;
+    display: block;
+    transition: transform 0.16s ease;
+  }
+  .sidebar-toggle-mark--collapsed {
+    transform: rotate(180deg);
+  }
+  .sidebar-toggle-mark :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
   h1 {
     font-family: var(--serif);
@@ -1125,43 +1322,13 @@
     box-shadow: 0 3px 12px rgba(60, 50, 30, 0.1);
     transform: translateY(-1px);
   }
-  .card--overdue {
-    background: linear-gradient(180deg, #fff7f5, #fffdfb);
-    border-color: #e3b7b0;
-    box-shadow: inset 0 0 0 1px rgba(178, 85, 72, 0.12), 0 2px 8px rgba(178, 85, 72, 0.08);
-  }
-  .card--due-today {
-    background: linear-gradient(180deg, #fffaf1, #fffdfb);
-    border-color: #e4cfab;
-  }
-  .card-state-badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 24px;
-    height: 24px;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    flex: none;
-  }
-  .card-state-badge svg {
-    width: 14px;
-    height: 14px;
-    display: block;
-  }
-  .card-state-badge--overdue {
-    background: #f3d8d2;
-    color: var(--over);
-    box-shadow: inset 0 0 0 1px rgba(178, 85, 72, 0.18);
-  }
-  .card-state-badge--today {
-    background: #f2e3bf;
-    color: #8c6430;
-    box-shadow: inset 0 0 0 1px rgba(184, 137, 63, 0.18);
-  }
   .card--drop-target {
     box-shadow: inset 0 2px 0 0 var(--accent), 0 4px 14px rgba(60, 50, 30, 0.1);
+  }
+  .card--highlighted {
+    background: linear-gradient(180deg, #fffaf1, var(--card));
+    box-shadow: 0 0 0 2px rgba(180, 141, 78, 0.4), 0 3px 12px rgba(60, 50, 30, 0.1);
+    border-color: #e4cfab;
   }
   .drag-ghost {
     position: fixed;
@@ -1213,7 +1380,6 @@
     letter-spacing: 0.06em;
     color: var(--muted-2);
   }
-  .card--doing { background: #fffefb; }
   .card--done {
     flex-direction: row;
     align-items: flex-start;
@@ -1224,14 +1390,6 @@
   }
   .card--archived {
     opacity: 0.72;
-  }
-  .card-bar {
-    position: absolute;
-    left: 0;
-    top: 5px;
-    bottom: 5px;
-    width: 3px;
-    border-radius: 3px;
   }
   .card-title {
     font-size: 13px;
@@ -1251,62 +1409,8 @@
     gap: 2px;
     min-width: 0;
   }
-  .card-foot {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-  }
-  .card-people {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    flex-wrap: wrap;
-    min-width: 0;
-    min-height: 20px;
-  }
-  .card-due-row {
-    display: flex;
-    justify-content: flex-end;
-  }
-  .person-av {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    color: white;
-    font-size: 8px;
-    font-weight: 700;
-    flex: none;
-    cursor: pointer;
-  }
   .person-text { font-size: 11px; color: var(--muted-2); }
   .person-none { font-size: 11px; color: var(--faint); font-style: italic; }
-  .due-tag {
-    font-size: 11px;
-    font-family: var(--mono);
-    color: var(--ink-2);
-    background: #efe3cc;
-    border-radius: 7px;
-    padding: 4px 8px;
-    flex: none;
-    box-shadow: inset 0 0 0 1px rgba(180, 141, 78, 0.12);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-  }
-  .due-tag--overdue {
-    color: var(--over);
-    background: #f7e4e0;
-    box-shadow: inset 0 0 0 1px rgba(178, 85, 72, 0.2);
-    font-weight: 700;
-  }
-  .due-tag--today {
-    color: #8c6430;
-    background: #f6e9cf;
-    box-shadow: inset 0 0 0 1px rgba(184, 137, 63, 0.2);
-    font-weight: 700;
-  }
   .check-icon {
     width: 20px; height: 20px; border-radius: 6px;
     background: var(--accent); color: white;
@@ -1387,20 +1491,28 @@
   .modal {
     background: var(--paper);
     border-radius: 18px;
-    padding: 24px 26px 20px;
-    width: 460px;
+    width: 580px;
     max-width: calc(100vw - 48px);
     max-height: calc(100vh - 48px);
-    overflow: visible;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 14px;
     box-shadow: 0 16px 48px rgba(44, 42, 38, 0.2);
   }
   .modal-head {
+    padding: 24px 26px 0;
     font-family: var(--serif);
     font-size: 22px;
     color: var(--ink);
+    flex-shrink: 0;
+  }
+  .modal-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
   .field {
     display: flex;
@@ -1425,9 +1537,109 @@
     outline: none; border-color: var(--accent);
   }
   .task-title-input {
-    min-height: 88px;
-    resize: vertical;
+    min-height: 38px;
+    resize: none;
     line-height: 1.45;
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .tool-btn {
+    border: 1px solid var(--line-2);
+    background: var(--card);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    color: var(--ink);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tool-btn:hover { background: var(--panel-2, #f5efe4); }
+  .tool-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--line-2);
+    align-self: center;
+  }
+  .tool-color-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line-2);
+    background: var(--card);
+    border-radius: 8px;
+    padding: 5px 12px;
+    cursor: pointer;
+    gap: 8px;
+    min-width: 132px;
+  }
+  .tool-color-wrap:hover { background: var(--panel-2, #f5efe4); }
+  .tool-color-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .tool-color-label {
+    font-family: var(--serif);
+    font-size: 18px;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .tool-color-copy {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .tool-color-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+  }
+  .desc-editor {
+    height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 14px;
+    background: #fffdf9;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  .desc-editor:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .desc-editor :global(p) { margin: 0 0 6px; }
+  .desc-editor :global(h2) { font-size: 16px; font-weight: 600; margin: 8px 0 4px; }
+  .desc-editor :global(h3) { font-size: 14px; font-weight: 600; margin: 6px 0 3px; }
+  .desc-editor :global(ul) { margin: 0 0 6px; padding-left: 20px; }
+  .desc-editor :global(li) { margin-bottom: 2px; }
+  .due-time-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .due-time-row .field:last-child {
+    flex: none;
+    width: 140px;
+  }
+  .due-time-row .field > input[type="time"] {
+    height: 38px;
+    box-sizing: border-box;
+    padding: 0 11px;
   }
   .date-picker {
     position: relative;
@@ -1438,9 +1650,10 @@
     align-items: center;
     gap: 10px;
     border: 1px solid var(--line-2);
-    border-radius: 12px;
-    padding: 0 14px;
-    min-height: 50px;
+    border-radius: 8px;
+    padding: 9px 11px;
+    height: 38px;
+    box-sizing: border-box;
     background: var(--card);
     color: var(--ink);
     cursor: pointer;
@@ -1470,20 +1683,25 @@
   .date-input-empty {
     color: var(--faint);
   }
+  .date-portal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 149;
+  }
   .date-popover {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
     z-index: 150;
-    width: min(264px, calc(100vw - 96px));
+    width: 240px;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 10px;
     background: var(--paper);
-    box-shadow: 0 18px 44px rgba(44, 42, 38, 0.18);
-    padding: 12px;
+    box-shadow: 0 12px 32px rgba(44, 42, 38, 0.16);
+    padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 5px;
+  }
+  .date-popover--fixed {
+    position: fixed;
   }
   .date-popover-head {
     display: flex;
@@ -1492,14 +1710,14 @@
     gap: 8px;
   }
   .date-nav-btn {
-    width: 30px;
-    height: 30px;
+    width: 22px;
+    height: 22px;
     border: 1px solid var(--line-2);
-    border-radius: 9px;
+    border-radius: 6px;
     background: var(--card);
     color: var(--ink);
     cursor: pointer;
-    font-size: 18px;
+    font-size: 13px;
     line-height: 1;
   }
   .date-nav-btn:hover {
@@ -1507,30 +1725,30 @@
   }
   .date-month-label {
     font-family: var(--serif);
-    font-size: 15px;
+    font-size: 12px;
     color: var(--ink);
   }
   .date-weekdays,
   .date-grid {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 4px;
+    gap: 1px;
   }
   .date-weekdays span {
     text-align: center;
     font-family: var(--mono);
-    font-size: 8px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 7px;
+    letter-spacing: 0.04em;
     color: var(--faint);
+    padding: 2px 0;
   }
   .date-day {
     aspect-ratio: 1;
     border: 1px solid transparent;
-    border-radius: 9px;
+    border-radius: 5px;
     background: transparent;
     color: var(--ink);
-    font-size: 12px;
+    font-size: 10px;
     cursor: pointer;
   }
   .date-day:hover {
@@ -1608,11 +1826,8 @@
   }
   .people-input:focus { outline: none; border-color: var(--accent); }
   .people-suggestions {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    right: 0;
-    z-index: 150;
+    position: fixed;
+    z-index: 200;
     max-height: 220px;
     overflow-y: auto;
     background: var(--paper);
@@ -1668,8 +1883,12 @@
     background: #e8e2d6; color: var(--ink); opacity: 1; cursor: default;
   }
   .modal-foot {
-    display: flex; justify-content: space-between;
-    align-items: center; margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 26px 20px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
   }
   .foot-right { display: flex; gap: 8px; align-items: center; margin-left: auto; }
   .icon-btn {
@@ -1684,10 +1903,6 @@
     cursor: pointer;
     flex: none;
   }
-  .icon-btn svg {
-    width: 16px;
-    height: 16px;
-  }
   .icon-btn:hover {
     color: var(--ink);
     background: var(--panel-2);
@@ -1701,4 +1916,134 @@
   @media (max-width: 1100px) {
     .board { grid-template-columns: 1fr; }
   }
+
+  /* ── View modal ── */
+  .view-modal {
+    position: relative;
+    background: var(--paper);
+    border-radius: 18px;
+    width: 600px;
+    max-width: calc(100vw - 48px);
+    max-height: calc(100vh - 48px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(44, 42, 38, 0.2);
+  }
+  .view-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0 28px 18px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .view-bar {
+    position: absolute;
+    left: 0;
+    top: 16px;
+    bottom: 16px;
+    width: 4px;
+    border-radius: 999px;
+  }
+  .view-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 24px 28px 18px 32px;
+    flex-shrink: 0;
+  }
+  .view-title {
+    flex: 1;
+    font-family: var(--serif);
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ink);
+    margin: 0;
+  }
+  .view-desc {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 14px;
+    background: #fffdf9;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  .view-desc :global(p) { margin: 0 0 6px; }
+  .view-desc :global(p:last-child) { margin-bottom: 0; }
+  .view-desc :global(h2) { font-size: 16px; font-weight: 600; margin: 8px 0 4px; }
+  .view-desc :global(h3) { font-size: 14px; font-weight: 600; margin: 6px 0 3px; }
+  .view-desc :global(ul) { margin: 0 0 6px; padding-left: 20px; }
+  .view-desc :global(li) { margin-bottom: 2px; }
+  .view-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  .view-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .view-meta-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--faint);
+    width: 60px;
+    flex: none;
+  }
+  .view-meta-val {
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .view-people {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .view-person-text {
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .view-priority-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex: none;
+  }
+  .person-av {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    flex: none;
+  }
+  .view-close-btn {
+    border: none;
+    background: none;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--muted-2);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    flex: none;
+  }
+  .view-close-btn:hover { color: var(--ink); background: var(--panel); }
 </style>

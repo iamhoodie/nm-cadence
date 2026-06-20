@@ -4,6 +4,7 @@
   import { screen, people, tasks, folders, vaultPath, selectedSlug, fireAppAction } from "./lib/stores.js";
   import { listPeople, listTasks, getVaultPath, listFolders, listenToMenuActions } from "./lib/api.js";
   import Sidebar from "./lib/components/Sidebar.svelte";
+  import DashboardView from "./lib/components/DashboardView.svelte";
   import PeopleView from "./lib/components/PeopleView.svelte";
   import PersonDetail from "./lib/components/PersonDetail.svelte";
   import TasksView from "./lib/components/TasksView.svelte";
@@ -78,7 +79,9 @@
 <div class="shell">
   <Sidebar />
   <main>
-    {#if $screen === "people"}
+    {#if $screen === "dashboard"}
+      <DashboardView />
+    {:else if $screen === "people"}
       <PeopleView />
     {:else if $screen === "person"}
       <PersonDetail />

@@ -56,6 +56,8 @@ pub struct Person {
 pub struct Task {
     pub title: String,
     #[serde(default)]
+    pub description: String, // rich HTML body; stored as `@desc:` line after the task line
+    #[serde(default)]
     pub person: String, // links to a Person.name; "" if unlinked
     #[serde(default)]
     pub due: String, // free text or ISO date
@@ -77,6 +79,8 @@ pub struct AppSettings {
     pub auto_archive_done: bool,
     #[serde(default = "default_archive_days")]
     pub auto_archive_days: u32,
+    #[serde(default = "default_stale_1on1_days")]
+    pub stale_1on1_days: u32,
 }
 
 fn default_true() -> bool {
@@ -87,11 +91,16 @@ fn default_archive_days() -> u32 {
     7
 }
 
+fn default_stale_1on1_days() -> u32 {
+    14
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             auto_archive_done: true,
             auto_archive_days: default_archive_days(),
+            stale_1on1_days: default_stale_1on1_days(),
         }
     }
 }

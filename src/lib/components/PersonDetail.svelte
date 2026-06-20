@@ -1,5 +1,6 @@
 <script>
   import { tick } from "svelte";
+  import { Trash2, ChevronLeft } from "lucide-svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
   import {
     appAction,
@@ -14,6 +15,8 @@
     formatDate,
     relative,
     colorForPerson,
+    sidebarCollapsed,
+    toggleSidebar,
   } from "../stores.js";
   import {
     addConversation,
@@ -355,7 +358,14 @@
 
 {#if person}
   <div class="topbar">
-    <button class="crumb" onclick={() => screen.set("people")}>← People / {person.name}</button>
+    <div class="topbar-left">
+      <button class="sidebar-toggle-btn" onclick={toggleSidebar} title={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+        <span class="sidebar-toggle-mark" class:sidebar-toggle-mark--collapsed={$sidebarCollapsed}>
+          <ChevronLeft size={16} strokeWidth={1.8} />
+        </span>
+      </button>
+      <button class="crumb" onclick={() => screen.set("people")}>People / {person.name}</button>
+    </div>
     <button class="ghost-btn" onclick={() => openConversationModal("create")}>+ New 1:1</button>
   </div>
 
@@ -478,9 +488,7 @@
 
       <div class="modal-foot">
         <button class="icon-btn icon-btn--danger" onclick={requestRemovePerson} title="Delete person" aria-label="Delete person">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v7h-2v-7Zm4 0h2v7h-2v-7ZM7 10h2v7H7v-7Zm-1 10h12l1-12H5l1 12Z" fill="currentColor"></path>
-          </svg>
+          <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
         </button>
         <div class="foot-right">
           <button class="text-btn" onclick={() => (editingPerson = false)}>Cancel</button>
@@ -596,9 +604,52 @@
   .topbar {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 16px 32px;
+    align-items: flex-start;
+    padding: 22px 32px 18px;
     border-bottom: 1px solid var(--line);
+  }
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .sidebar-toggle-btn {
+    border: 1px solid var(--line);
+    background: rgba(251, 247, 240, 0.94);
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    color: var(--muted-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(58, 53, 45, 0.08);
+  }
+  .sidebar-toggle-btn:hover,
+  .sidebar-toggle-btn:focus-visible {
+    background: #f2eadb;
+    color: var(--ink);
+    outline: none;
+  }
+  .sidebar-toggle-mark {
+    width: 16px;
+    height: 16px;
+    display: block;
+    transition: transform 0.16s ease;
+  }
+  .sidebar-toggle-mark--collapsed {
+    transform: rotate(180deg);
+  }
+  .sidebar-toggle-mark :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
   .crumb {
     border: none;

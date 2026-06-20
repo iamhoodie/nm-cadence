@@ -1,9 +1,30 @@
 import { writable } from "svelte/store";
 
-// "people" | "person" | "tasks" | "conversations" | "today" | "settings"
-export const screen = writable("people");
+// "dashboard" | "people" | "person" | "tasks" | "conversations" | "today" | "settings"
+export const screen = writable("dashboard");
+export const sidebarCollapsed = writable(false);
+
+export function toggleSidebar() {
+  sidebarCollapsed.update((v) => {
+    const next = !v;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("sideeye.sidebarCollapsed", next ? "1" : "0");
+    }
+    return next;
+  });
+}
+
+export function expandSidebar() {
+  sidebarCollapsed.set(false);
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("sideeye.sidebarCollapsed", "0");
+  }
+}
 // slug of the open person, or null
 export const selectedSlug = writable(null);
+
+// title of the task to highlight when navigating to tasks screen
+export const selectedTaskTitle = writable("");
 
 export const people = writable([]);
 export const tasks = writable([]);

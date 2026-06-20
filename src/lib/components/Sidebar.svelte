@@ -1,5 +1,7 @@
 <script>
-  import { screen, selectedSlug, people, folders, initials, GROUP_COLORS, colorForPerson, fireAppAction } from "../stores.js";
+  import { tick } from "svelte";
+  import { House, Users, SquareCheck, MessageSquare, Search } from "lucide-svelte";
+  import { screen, selectedSlug, people, folders, initials, GROUP_COLORS, colorForPerson, fireAppAction, sidebarCollapsed, expandSidebar } from "../stores.js";
   import { createFolder, updateFolder, reorderFolders, deleteFolder, updatePerson } from "../api.js";
   import ConfirmModal from "./ConfirmModal.svelte";
   import UpdaterPanel from "./UpdaterPanel.svelte";
@@ -11,9 +13,10 @@
   }
 
   const navItems = [
-    { key: "people", label: "People", screens: ["people", "person"] },
-    { key: "tasks", label: "Tasks", screens: ["tasks"] },
-    { key: "conversations", label: "Conversations", screens: ["conversations"] },
+    { key: "dashboard", label: "Dashboard", icon: "dashboard", screens: ["dashboard"] },
+    { key: "people", label: "People", icon: "people", screens: ["people", "person"] },
+    { key: "tasks", label: "Tasks", icon: "tasks", screens: ["tasks"] },
+    { key: "conversations", label: "Conversations", icon: "conversations", screens: ["conversations"] },
   ];
 
   let searchQuery = $state("");
@@ -30,6 +33,7 @@
   let confirmState = $state(null);
   let pointerDrag = $state(null);
   let contextMenu = $state(null);
+  let searchInput = $state();
 
   const visiblePeople = $derived(
     searchQuery.trim()
@@ -154,6 +158,7 @@
   }
 
   function openNewFolderModal() {
+    expandSidebar();
     addingFolder = true;
     editingFolderName = "";
     newFolderName = "";
@@ -161,6 +166,7 @@
   }
 
   function openEditFolderModal(name) {
+    expandSidebar();
     addingFolder = true;
     editingFolderName = name;
     newFolderName = name;
@@ -231,11 +237,25 @@
 
   function openAddPersonForGroup(groupKey) {
     closeContextMenu();
+    expandSidebar();
     screen.set("people");
     setTimeout(
       () => fireAppAction("new-person", { group: groupKey === "__ungrouped" ? "" : groupKey }),
       0
     );
+  }
+
+  async function expandForSearch() {
+    if ($sidebarCollapsed) {
+      expandSidebar();
+      await tick();
+    }
+    searchInput?.focus();
+  }
+
+  function expandSidebarForDrag() {
+    if (!$sidebarCollapsed) return;
+    expandSidebar();
   }
 
   function openPersonContextMenu(event, person) {
@@ -329,6 +349,7 @@
   function beginPointerDrag(event, person) {
     if (event.button !== 0) return;
     event.preventDefault();
+    expandSidebarForDrag();
     draggedSlug = person.slug;
     dragMoved = false;
     pointerDrag = {
@@ -350,6 +371,7 @@
     if (event.button !== 0 || group.key === "__ungrouped") return;
     event.preventDefault();
     event.stopPropagation();
+    expandSidebarForDrag();
     pointerDrag = {
       kind: "group",
       groupKey: group.key,
@@ -381,33 +403,73 @@
       window.removeEventListener("keydown", handleEscape);
     };
   });
+
+  $effect(() => {
+    if (typeof localStorage === "undefined") return;
+    const stored = localStorage.getItem("sideeye.sidebarCollapsed");
+    if (stored !== null) {
+      $sidebarCollapsed = stored === "1";
+    }
+  });
 </script>
 
-<aside>
+<aside class:aside--collapsed={$sidebarCollapsed}>
   <div class="brand">
     <img class="logo-image" src={sideEyeLogo} alt="SideEye" />
-    <span>SideEye</span>
+    {#if !$sidebarCollapsed}
+      <span>SideEye</span>
+    {/if}
   </div>
 
   <nav>
     {#each navItems as item}
       <button
         class="nav-item"
+        class:nav-item--compact={$sidebarCollapsed}
         class:active={item.screens.includes($screen)}
         onclick={() => screen.set(item.key)}
+        title={$sidebarCollapsed ? item.label : undefined}
+        aria-label={item.label}
       >
-        {item.label}
+        {#if $sidebarCollapsed}
+          <span class="nav-item-icon" aria-hidden="true">
+            {#if item.icon === "dashboard"}
+              <House size={20} strokeWidth={1.8} />
+            {:else if item.icon === "people"}
+              <Users size={20} strokeWidth={1.8} />
+            {:else if item.icon === "tasks"}
+              <SquareCheck size={20} strokeWidth={1.8} />
+            {:else}
+              <MessageSquare size={20} strokeWidth={1.8} />
+            {/if}
+          </span>
+        {:else}
+          {item.label}
+        {/if}
       </button>
     {/each}
+    {#if $sidebarCollapsed}
+      <button
+        class="nav-item nav-item--compact"
+        onclick={expandForSearch}
+        title="Search people"
+        aria-label="Search people"
+      >
+        <span class="nav-item-icon" aria-hidden="true">
+          <Search size={20} strokeWidth={1.8} />
+        </span>
+      </button>
+    {/if}
   </nav>
 
+  {#if !$sidebarCollapsed}
   <div class="sidebar-main">
     <div class="people-head">
       <span class="mono-label">YOUR PEOPLE</span>
       <span class="count">{$people.length}</span>
     </div>
     <div class="search-wrap">
-      <input class="search" placeholder="Search people" bind:value={searchQuery} />
+      <input bind:this={searchInput} class="search" placeholder="Search people" bind:value={searchQuery} />
       {#if searchQuery.trim()}
         <button class="search-clear-btn" onclick={() => (searchQuery = "")} aria-label="Clear people search">
           ×
@@ -494,8 +556,9 @@
       {/if}
     </div>
   </div>
+  {/if}
 
-  <UpdaterPanel />
+  <UpdaterPanel compact={$sidebarCollapsed} />
 </aside>
 
 {#if pointerDrag?.active}
@@ -614,10 +677,15 @@
     flex: none;
     background: var(--panel);
     border-right: 1px solid var(--line-2);
-    padding: 24px 16px;
+    padding: 24px 16px 12px 16px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: width 0.18s ease, padding 0.18s ease;
+  }
+  .aside--collapsed {
+    width: 76px;
+    padding: 24px 10px 12px 10px;
   }
   .brand {
     display: flex;
@@ -626,9 +694,15 @@
     padding: 0 8px;
     margin-bottom: 24px;
   }
+  .aside--collapsed .brand {
+    justify-content: center;
+    gap: 8px;
+    padding: 0;
+    margin-bottom: 18px;
+  }
   .logo-image {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 8px;
     object-fit: cover;
     flex: none;
@@ -651,6 +725,9 @@
     flex-direction: column;
   }
   .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     text-align: left;
     border: none;
     background: transparent;
@@ -658,11 +735,42 @@
     border-radius: 7px;
     font-size: 14px;
     color: #6b6557;
+    transition: background 0.14s ease, color 0.14s ease, transform 0.14s ease;
+  }
+  .nav-item--compact {
+    justify-content: center;
+    padding: 12px 0;
+    text-align: center;
   }
   .nav-item.active {
     background: #e2dccd;
     color: var(--ink);
     font-weight: 600;
+  }
+  .nav-item-icon {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    color: currentColor;
+    flex: none;
+  }
+  .nav-item-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .nav-item:hover,
+  .nav-item:focus-visible {
+    background: rgba(226, 220, 205, 0.72);
+    color: var(--ink);
+    outline: none;
+  }
+  .aside--collapsed .nav-item {
+    border-radius: 14px;
+  }
+  .aside--collapsed .nav-item.active {
+    background: #e6dece;
   }
   .people-head {
     display: flex;

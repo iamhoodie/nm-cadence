@@ -1,4 +1,5 @@
 <script>
+  import { ChevronLeft, ChevronRight } from "lucide-svelte";
   import {
     people,
     screen,
@@ -11,6 +12,8 @@
     initials,
     folders,
     colorForPerson,
+    sidebarCollapsed,
+    toggleSidebar,
   } from "../stores.js";
 
   const PAGE_SIZE_OPTIONS = [25, 50, 100, 500];
@@ -99,9 +102,16 @@
 </script>
 
 <header>
-  <div>
-    <h1>Conversations</h1>
-    <p>Every 1:1 across your people, sorted newest first.</p>
+  <div class="header-left">
+    <button class="sidebar-toggle-btn" onclick={toggleSidebar} title={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+      <span class="sidebar-toggle-mark" class:sidebar-toggle-mark--collapsed={$sidebarCollapsed}>
+        <ChevronLeft size={16} strokeWidth={1.8} />
+      </span>
+    </button>
+    <div>
+      <h1>Conversations</h1>
+      <p>Every 1:1 across your people, sorted newest first.</p>
+    </div>
   </div>
 </header>
 
@@ -242,6 +252,49 @@
     align-items: center;
     padding: 22px 32px 18px;
     border-bottom: 1px solid var(--line);
+  }
+  .header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .sidebar-toggle-btn {
+    border: 1px solid var(--line);
+    background: rgba(251, 247, 240, 0.94);
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    color: var(--muted-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(58, 53, 45, 0.08);
+  }
+  .sidebar-toggle-btn:hover,
+  .sidebar-toggle-btn:focus-visible {
+    background: #f2eadb;
+    color: var(--ink);
+    outline: none;
+  }
+  .sidebar-toggle-mark {
+    width: 16px;
+    height: 16px;
+    display: block;
+    transition: transform 0.16s ease;
+  }
+  .sidebar-toggle-mark--collapsed {
+    transform: rotate(180deg);
+  }
+  .sidebar-toggle-mark :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
   h1 {
     font-family: var(--serif);

@@ -217,6 +217,7 @@ fn parse_task_meta(line: &str) -> (String, Task) {
         title_parts.join(" "),
         Task {
             title: String::new(),
+            description: String::new(),
             person,
             due,
             due_time,
@@ -237,7 +238,10 @@ pub fn list_tasks(vault: &Path, settings: &AppSettings) -> io::Result<Vec<Task>>
     let content = fs::read_to_string(path)?;
     let mut tasks = Vec::new();
     let mut column = "todo".to_string();
-    for line in content.lines() {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
         if let Some(h) = line.strip_prefix("## ") {
             let h = h.trim();
             column = COLUMNS
@@ -245,6 +249,7 @@ pub fn list_tasks(vault: &Path, settings: &AppSettings) -> io::Result<Vec<Task>>
                 .find(|(label, _)| label.eq_ignore_ascii_case(h))
                 .map(|(_, key)| key.to_string())
                 .unwrap_or_else(|| h.to_lowercase());
+            i += 1;
             continue;
         }
         let t = line.trim_start();
@@ -253,6 +258,7 @@ pub fn list_tasks(vault: &Path, settings: &AppSettings) -> io::Result<Vec<Task>>
         } else if let Some(r) = t.strip_prefix("- [x] ").or_else(|| t.strip_prefix("- [X] ")) {
             (true, r)
         } else {
+            i += 1;
             continue;
         };
         let (title, mut task) = parse_task_meta(rest);
@@ -266,7 +272,15 @@ pub fn list_tasks(vault: &Path, settings: &AppSettings) -> io::Result<Vec<Task>>
         task.title = title;
         task.column = column.clone();
         task.done = done;
+        // peek at the next line for an optional description
+        if i + 1 < lines.len() {
+            if let Some(desc) = lines[i + 1].strip_prefix("@desc:") {
+                task.description = desc.to_string();
+                i += 1; // consume the description line
+            }
+        }
         tasks.push(task);
+        i += 1;
     }
     let tasks = apply_auto_archive(tasks, &settings);
     write_tasks_if_changed(vault, &tasks)?;
@@ -300,6 +314,10 @@ fn render_tasks(tasks: &[Task]) -> String {
             }
             out.push_str(&line);
             out.push('\n');
+            if !t.description.is_empty() {
+                let desc_inline = t.description.replace(['\n', '\r'], "");
+                out.push_str(&format!("@desc:{}\n", desc_inline));
+            }
         }
         out.push('\n');
     }

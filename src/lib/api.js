@@ -23,6 +23,7 @@ let mockTasks = structuredClone(SAMPLE_TASKS);
 let mockAppSettings = {
   auto_archive_done: true,
   auto_archive_days: 7,
+  stale_1on1_days: 14,
 };
 
 export async function listPeople() {

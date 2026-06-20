@@ -2,7 +2,9 @@
   import { onMount } from "svelte";
   import { screen } from "../stores.js";
   import { checkForUpdate, getUpdaterStatus, installUpdate } from "../api.js";
+  import { Settings, Info } from "lucide-svelte";
 
+  let { compact = false } = $props();
   let loading = $state(true);
   let checking = $state(false);
   let installing = $state(false);
@@ -41,7 +43,7 @@
       if (result) {
         message = `Update available: v${result.version}`;
       } else if (!silent) {
-        message = "You’re on the latest version.";
+        message = "You're on the latest version.";
       }
     } catch (err) {
       if (!silent) error = err?.message || String(err);
@@ -74,13 +76,21 @@
 </script>
 
 <section class="updates">
-  <div class="version-row">
-    <button class="settings-link" onclick={() => screen.set("settings")} title="Settings">
-      Settings
+  <div class="version-row" class:version-row--compact={compact}>
+    <button class="settings-link" class:settings-link--compact={compact} onclick={() => screen.set("settings")} title="Settings" aria-label="Settings">
+      {#if compact}
+        <Settings size={20} strokeWidth={1.8} aria-hidden="true" />
+      {:else}
+        Settings
+      {/if}
     </button>
-    <button class="version-trigger" onclick={() => (modalOpen = true)} title="App info and updates">
-      <span class="version-text">v{status.currentVersion || "…"}</span>
-      <span class="version-mark">i</span>
+    <button class="version-trigger" class:version-trigger--compact={compact} onclick={() => (modalOpen = true)} title="App info and updates" aria-label="App info and updates">
+      {#if compact}
+        <Info size={20} strokeWidth={1.8} aria-hidden="true" />
+      {:else}
+        <span class="version-text">v{status.currentVersion || "…"}</span>
+        <span class="version-mark">i</span>
+      {/if}
       {#if updateInfo}
         <span class="update-dot" aria-label="Update available"></span>
       {/if}
@@ -139,8 +149,8 @@
 
 <style>
   .updates {
-    margin-top: 12px;
-    padding: 10px 8px 0;
+    margin-top: auto;
+    padding: 6px 8px 0;
     border-top: 1px solid var(--line);
   }
   .version-row {
@@ -149,6 +159,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+  }
+  .version-row--compact {
+    flex-direction: row;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
   }
   .settings-link,
   .version-trigger {
@@ -170,6 +186,19 @@
   .version-trigger {
     margin-left: auto;
   }
+  .settings-link--compact,
+  .version-trigger--compact {
+    flex: 1;
+    padding: 4px;
+    border-radius: 14px;
+    justify-content: center;
+    gap: 0;
+    border: none;
+    background: transparent;
+    color: #6b6557;
+    box-sizing: border-box;
+    margin-left: 0;
+  }
   .version-mark {
     font-family: var(--mono);
     font-size: 12px;
@@ -189,6 +218,12 @@
   .version-trigger:focus-visible {
     color: var(--ink);
     outline: none;
+  }
+  .settings-link--compact:hover,
+  .version-trigger--compact:hover,
+  .settings-link--compact:focus-visible,
+  .version-trigger--compact:focus-visible {
+    background: rgba(226, 220, 205, 0.72);
   }
   .update-dot {
     width: 8px;
