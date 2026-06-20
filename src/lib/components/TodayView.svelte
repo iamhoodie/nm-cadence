@@ -1,5 +1,5 @@
 <script>
-  import { people, tasks, screen, selectedSlug, priorityColor, initials, relative } from "../stores.js";
+  import { people, tasks, screen, selectedSlug, priorityColor, initials, relative, folders, colorForPerson } from "../stores.js";
 
   const todayStr = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
@@ -43,7 +43,7 @@
   <div class="panel">
     {#each recentPeople as p (p.slug)}
       <button class="prow" on:click={() => open(p.slug)}>
-        <span class="avatar" style="background:{p.color}">{initials(p.name)}</span>
+        <span class="avatar" style="background:{colorForPerson(p, $folders)}">{initials(p.name)}</span>
         <span class="who">
           <span class="pname">{p.name}</span>
           <span class="psub">Last 1:1 — {relative(p.last_met)}</span>

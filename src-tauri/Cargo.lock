@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "cadence"
-version = "0.1.1"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "serde",

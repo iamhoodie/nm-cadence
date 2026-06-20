@@ -9,6 +9,8 @@
     formatDate,
     relative,
     initials,
+    folders,
+    colorForPerson,
   } from "../stores.js";
 
   const PAGE_SIZE_OPTIONS = [25, 50, 100, 500];
@@ -52,7 +54,7 @@
           slug: person.slug,
           personName: person.name || "",
           personRole: person.role || "",
-          personColor: person.color || "var(--accent)",
+          personColor: colorForPerson(person, $folders),
           date: conv.date || "",
           title: conv.title || "Untitled conversation",
           body: stripHtml(conv.body),
@@ -109,11 +111,22 @@
       <div class="mono-label">SEARCH</div>
       <div class="search-copy">Search by person, title, note content, or action items.</div>
     </div>
-    <input
-      class="conversation-search"
-      placeholder="Search all conversations"
-      bind:value={$conversationsViewQuery}
-    />
+    <div class="conversation-search-wrap">
+      <input
+        class="conversation-search"
+        placeholder="Search all conversations"
+        bind:value={$conversationsViewQuery}
+      />
+      {#if trimmedQuery}
+        <button
+          class="conversation-search-clear"
+          onclick={() => conversationsViewQuery.set("")}
+          aria-label="Clear conversation search"
+        >
+          ×
+        </button>
+      {/if}
+    </div>
   </section>
 
   <section class="results-panel">
@@ -271,11 +284,14 @@
     color: var(--muted);
     font-size: 13px;
   }
+  .conversation-search-wrap {
+    position: relative;
+  }
   .conversation-search {
     width: 100%;
     border: 1px solid var(--line-2);
     border-radius: 10px;
-    padding: 11px 13px;
+    padding: 11px 42px 11px 13px;
     font-size: 14px;
     background: var(--card);
     color: var(--ink);
@@ -283,6 +299,27 @@
   .conversation-search:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  .conversation-search-clear {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--faint);
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0;
+  }
+  .conversation-search-clear:hover {
+    background: #ebe3d5;
+    color: var(--ink);
   }
   .results-head {
     display: flex;

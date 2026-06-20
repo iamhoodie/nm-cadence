@@ -1,5 +1,5 @@
 <script>
-  import { appAction, clearAppAction, people, folders, screen, selectedSlug } from "../stores.js";
+  import { appAction, clearAppAction, people, folders, screen, selectedSlug, GROUP_COLORS, colorForPerson } from "../stores.js";
   import { createPerson } from "../api.js";
   import PersonCard from "./PersonCard.svelte";
 
@@ -9,7 +9,7 @@
   }
 
   const grouped = $derived(() => {
-    const folderNames = [...new Set([...$folders, ...$people.map((person) => person.group).filter(Boolean)])]
+    const folderNames = [...new Set([...$folders.map((folder) => folder.name), ...$people.map((person) => person.group).filter(Boolean)])]
       .sort((a, b) => a.localeCompare(b));
     const groups = folderNames.map((name) => ({
       key: name,
@@ -24,21 +24,30 @@
     return groups.filter((group) => group.items.length);
   });
 
-  const COLORS = ["#6b7d9c", "#a86b5a", "#8d6480", "#a8824f", "#5d8a8a", "#7a8b5a", "#6f8f72", "#9c7b6b"];
-
   let adding = $state(false);
   let newName = $state("");
   let newRole = $state("");
-  let newColor = $state("#6b7d9c");
+  let newGroup = $state("");
   let addError = $state("");
   let handledActionToken = $state(0);
-  let newColorInput = $state();
+
+  const folderOptions = $derived(() =>
+    [...new Set([...$folders.map((folder) => folder.name), ...$people.map((item) => item.group).filter(Boolean)])]
+      .sort((a, b) => a.localeCompare(b))
+  );
+
+  const previewPerson = $derived({
+    name: newName || "Ungrouped",
+    role: newRole || "",
+    group: newGroup,
+    color: newGroup ? $folders.find((folder) => folder.name === newGroup)?.color || GROUP_COLORS[0] : GROUP_COLORS[0],
+  });
 
   function openAdd() {
     adding = true;
     newName = "";
     newRole = "";
-    newColor = "#6b7d9c";
+    newGroup = "";
     addError = "";
   }
 
@@ -50,18 +59,11 @@
     const person = await createPerson({
       name: newName.trim(),
       role: newRole.trim(),
-      color: newColor,
+      color: newGroup ? $folders.find((folder) => folder.name === newGroup)?.color || GROUP_COLORS[0] : GROUP_COLORS[0],
+      group: newGroup,
     });
     people.update((list) => [...list, person].sort((a, b) => a.name.localeCompare(b.name)));
     adding = false;
-  }
-
-  function isPresetColor(color) {
-    return COLORS.includes(color);
-  }
-
-  function openCustomColorPicker() {
-    newColorInput?.click();
   }
 
   $effect(() => {
@@ -120,38 +122,26 @@
         <input bind:value={newRole} placeholder="Title or team" />
       </label>
       <label class="field">
-        <span>COLOR</span>
-          <div class="color-picker">
-            <div class="color-swatch-grid">
-              {#each COLORS as color}
-              <button
-                type="button"
-                class="color-swatch"
-                class:selected={newColor === color}
-                style={`--swatch:${color}`}
-                onclick={() => (newColor = color)}
-                  aria-label={`Select ${color}`}
-                ></button>
-              {/each}
-              <button
-                type="button"
-                class="custom-color-btn"
-                class:selected={!isPresetColor(newColor)}
-                onclick={openCustomColorPicker}
-              >
-                Custom
-              </button>
-            </div>
-            <input bind:this={newColorInput} class="hidden-color-input" type="color" bind:value={newColor} />
-            <div class="color-preview-card">
-              <span class="avatar-preview" style="background:{newColor}">{newName ? newName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '?'}</span>
-              <div>
-              <div class="color-preview-name">{newName || "New person"}</div>
-              <div class="color-preview-copy">Avatar preview</div>
-            </div>
-          </div>
+        <span>GROUP</span>
+        <div class="select-wrap">
+          <select bind:value={newGroup}>
+            <option value="">Ungrouped</option>
+            {#each folderOptions() as option}
+              <option value={option}>{option}</option>
+            {/each}
+          </select>
         </div>
       </label>
+      <div class="field">
+        <span>GROUP COLOR</span>
+        <div class="color-preview-card">
+          <span class="avatar-preview" style="background:{colorForPerson(previewPerson, $folders)}">{newName ? newName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '?'}</span>
+          <div>
+            <div class="color-preview-name">{newName || "Ungrouped"}</div>
+            <div class="color-preview-copy">{newGroup ? `${newGroup} color` : "Ungrouped"}</div>
+          </div>
+        </div>
+      </div>
 
       {#if addError}<div class="error">{addError}</div>{/if}
 
@@ -265,7 +255,8 @@
     letter-spacing: 0.12em;
     color: var(--faint);
   }
-  .field input {
+  .field input,
+  .field select {
     border: 1px solid var(--line-2);
     border-radius: 8px;
     padding: 9px 11px;
@@ -273,66 +264,30 @@
     background: var(--card);
     color: var(--ink);
   }
-  .field input:focus {
+  .select-wrap {
+    position: relative;
+  }
+  .select-wrap::after {
+    content: "▾";
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .field input:focus,
+  .field select:focus {
     outline: none;
     border-color: var(--accent);
   }
-  .color-picker {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .color-swatch-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-  }
-  .color-swatch {
+  .field select {
     width: 100%;
-    aspect-ratio: 1;
-    border-radius: 14px;
-    border: 1px solid #dfd7ca;
-    background: #f5efe5;
-    position: relative;
+    appearance: none;
+    -webkit-appearance: none;
     cursor: pointer;
-    padding: 0;
-  }
-  .color-swatch::before {
-    content: "";
-    position: absolute;
-    inset: 7px;
-    border-radius: 10px;
-    background: var(--swatch);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-  }
-  .color-swatch.selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(180, 141, 78, 0.14);
-  }
-  .custom-color-btn {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    cursor: pointer;
-    padding: 0 6px;
-    align-self: center;
-    white-space: nowrap;
-  }
-  .custom-color-btn.selected {
-    color: var(--ink);
-    text-decoration: underline;
-    text-underline-offset: 0.28em;
-  }
-  .hidden-color-input {
-    position: absolute;
-    width: 0;
-    height: 0;
-    opacity: 0;
-    pointer-events: none;
+    padding-right: 34px;
   }
   .color-preview-copy {
     margin-top: 2px;

@@ -30,6 +30,13 @@ pub struct Frontmatter {
     pub group: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct Folder {
+    pub name: String,
+    #[serde(default)]
+    pub color: String,
+}
+
 /// A person, assembled from one `people/<slug>.md` file.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Person {
@@ -52,6 +59,8 @@ pub struct Task {
     pub person: String, // links to a Person.name; "" if unlinked
     #[serde(default)]
     pub due: String, // free text or ISO date
+    #[serde(default)]
+    pub due_time: String, // optional HH:MM time
     #[serde(default)]
     pub priority: String, // "high" | "med" | "low"
     pub column: String,   // "todo" | "doing" | "done"

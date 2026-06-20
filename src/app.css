@@ -10,7 +10,7 @@
   --ink-2: #3f3a32;
   --muted: #82796b;
   --muted-2: #928b7c;
-  --faint: #9a9384;
+  --faint: #252420;
 
   --accent: #6f8f72;
   --accent-deep: #4d6b50;
@@ -45,10 +45,20 @@ body {
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #app {
   height: 100vh;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Custom scrollbars to match the warm theme */

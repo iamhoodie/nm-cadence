@@ -48,6 +48,7 @@ export async function addConversation(slug, conv) {
 function normalizeTasks(raw) {
   return raw.map((t) => ({
     ...t,
+    due_time: t.due_time || "",
     people: Array.isArray(t.people)
       ? t.people
       : t.person && t.person !== "—"
@@ -120,14 +121,14 @@ export async function saveAppSettings(settings) {
   return invoke("save_app_settings", { settings });
 }
 
-export async function createPerson({ name, role, color }) {
+export async function createPerson({ name, role, color, group }) {
   if (!inTauri) {
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const p = { slug, name, role: role || "", bio: "", color: color || "#6b7d9c", group: "", last_met: null, conversations: [] };
+    const p = { slug, name, role: role || "", bio: "", color: color || "#6b7d9c", group: group || "", last_met: null, conversations: [] };
     mockPeople.push(p);
     return structuredClone(p);
   }
-  return invoke("create_person", { name, role, color });
+  return invoke("create_person", { name, role, color, group: group || "" });
 }
 
 export async function deletePerson(slug) {
@@ -176,9 +177,21 @@ export async function listFolders() {
   return invoke("list_folders");
 }
 
-export async function createFolder(name) {
+export async function createFolder(name, color) {
   if (!inTauri) return;
-  return invoke("create_folder", { name });
+  return invoke("create_folder", { name, color });
+}
+
+export async function updateFolder(name, nextName, color) {
+  if (!inTauri) {
+    return;
+  }
+  return invoke("update_folder", { name, nextName, color });
+}
+
+export async function reorderFolders(names) {
+  if (!inTauri) return;
+  return invoke("reorder_folders", { names });
 }
 
 export async function deleteFolder(name) {

@@ -1,12 +1,12 @@
 <script>
-  import { initials, relative } from "../stores.js";
+  import { folders, initials, relative, colorForPerson } from "../stores.js";
 
   let { person, onOpen } = $props();
 </script>
 
 <button class="card" onclick={() => onOpen(person.slug)}>
   <div class="head">
-    <span class="avatar" style="background:{person.color}">{initials(person.name)}</span>
+    <span class="avatar" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
     <span class="who">
       <span class="name">{person.name}</span>
       <span class="role">{person.role}</span>

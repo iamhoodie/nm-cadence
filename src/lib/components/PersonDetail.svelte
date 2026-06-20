@@ -13,6 +13,7 @@
     initials,
     formatDate,
     relative,
+    colorForPerson,
   } from "../stores.js";
   import {
     addConversation,
@@ -36,12 +37,10 @@
       : []
   );
   const folderOptions = $derived(() =>
-    [...new Set([...$folders, ...$people.map((item) => item.group).filter(Boolean)])].sort((a, b) =>
+    [...new Set([...$folders.map((folder) => folder.name), ...$people.map((item) => item.group).filter(Boolean)])].sort((a, b) =>
       a.localeCompare(b)
     )
   );
-
-  const COLORS = ["#6b7d9c", "#a86b5a", "#8d6480", "#a8824f", "#5d8a8a", "#7a8b5a", "#6f8f72", "#9c7b6b"];
 
   let editingPerson = $state(false);
   let conversationModalOpen = $state(false);
@@ -57,11 +56,9 @@
   let formRole = $state("");
   let formBio = $state("");
   let formGroup = $state("");
-  let formColor = $state("#6b7d9c");
 
   let editorElement = $state();
   let colorInput = $state();
-  let profileColorInput = $state();
   let confirmState = $state(null);
   let handledActionToken = $state(0);
   let highlightedConversationKey = $state("");
@@ -70,8 +67,10 @@
   let notesElement = $state();
   const conversationNodes = new Map();
 
-  function today() {
-    return new Date().toISOString().slice(0, 10);
+  function currentDateTimeValue() {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
   }
 
   function resetConversationEditor() {
@@ -127,7 +126,7 @@
     if (!person || !noteTitle.trim()) return;
     syncStateFromEditor();
     const conv = {
-      date: conversationOriginal?.date || today(),
+      date: conversationOriginal?.date || currentDateTimeValue().replace("T", " "),
       title: noteTitle.trim(),
       body: noteBody,
       actions: noteActions
@@ -195,15 +194,6 @@
     formRole = person.role || "";
     formBio = person.bio || "";
     formGroup = person.group || "";
-    formColor = person.color || "#6b7d9c";
-  }
-
-  function isPresetColor(color) {
-    return COLORS.includes(color);
-  }
-
-  function openProfileColorPicker() {
-    profileColorInput?.click();
   }
 
   async function savePersonEdits() {
@@ -212,7 +202,7 @@
       name: formName.trim(),
       role: formRole.trim(),
       bio: formBio.trim(),
-      color: formColor,
+      color: person.color,
       group: formGroup.trim(),
     });
     people.update((list) => list.map((item) => (item.slug === updated.slug ? updated : item)));
@@ -341,9 +331,16 @@
   $effect(() => {
     const action = $appAction;
     if (!action?.token || action.token === handledActionToken) return;
-    if (action.type !== "new-1on1") return;
     handledActionToken = action.token;
-    openConversationModal("create");
+    if (action.type === "new-1on1") {
+      openConversationModal("create");
+    } else if (action.type === "edit-person") {
+      beginEditPerson();
+    } else if (action.type === "delete-person") {
+      requestRemovePerson();
+    } else {
+      return;
+    }
     clearAppAction();
   });
 
@@ -364,7 +361,7 @@
 
   <div class="hero">
     <div class="row">
-      <span class="avatar" style="background:{person.color}">{initials(person.name)}</span>
+      <span class="avatar" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
       <div>
         <div class="name">{person.name}</div>
         <div class="role">{person.role}</div>
@@ -477,39 +474,6 @@
             {/each}
           </select>
         </label>
-        <label class="field">
-          <span>COLOR</span>
-          <div class="color-picker">
-            <div class="color-swatch-grid">
-              {#each COLORS as color}
-                <button
-                  type="button"
-                  class="color-swatch"
-                  class:selected={formColor === color}
-                  style={`--swatch:${color}`}
-                  onclick={() => (formColor = color)}
-                  aria-label={`Select ${color}`}
-                ></button>
-              {/each}
-              <button
-                type="button"
-                class="custom-color-btn"
-                class:selected={!isPresetColor(formColor)}
-                onclick={openProfileColorPicker}
-              >
-                Custom
-              </button>
-            </div>
-            <input bind:this={profileColorInput} class="hidden-color-input" type="color" bind:value={formColor} />
-            <div class="color-preview-card">
-              <span class="avatar-preview" style="background:{formColor}">{initials(formName || person.name)}</span>
-              <div>
-                <div class="color-preview-name">{formName || person.name}</div>
-                <div class="color-preview-copy">Avatar preview</div>
-              </div>
-            </div>
-          </div>
-        </label>
       </div>
 
       <div class="modal-foot">
@@ -543,15 +507,15 @@
           <div class="field note-pane">
             <span>NOTES</span>
             <div class="toolbar">
-              <button class="tool-btn" onclick={() => runEditor("bold")}><strong>B</strong></button>
-              <button class="tool-btn" onclick={() => runEditor("italic")}><em>I</em></button>
-              <button class="tool-btn" onclick={() => runEditor("underline")}><u>U</u></button>
+              <button class="tool-btn" title="Bold" aria-label="Bold" onclick={() => runEditor("bold")}><strong>B</strong></button>
+              <button class="tool-btn" title="Italic" aria-label="Italic" onclick={() => runEditor("italic")}><em>I</em></button>
+              <button class="tool-btn" title="Underline" aria-label="Underline" onclick={() => runEditor("underline")}><u>U</u></button>
               <div class="tool-sep"></div>
-              <button class="tool-btn" onclick={() => formatBlock("H2")}>H2</button>
-              <button class="tool-btn" onclick={() => formatBlock("H3")}>H3</button>
-              <button class="tool-btn" onclick={() => formatBlock("P")}>¶</button>
+              <button class="tool-btn" title="Heading 2" aria-label="Heading 2" onclick={() => formatBlock("H2")}>H2</button>
+              <button class="tool-btn" title="Heading 3" aria-label="Heading 3" onclick={() => formatBlock("H3")}>H3</button>
+              <button class="tool-btn" title="Paragraph" aria-label="Paragraph" onclick={() => formatBlock("P")}>¶</button>
               <div class="tool-sep"></div>
-              <button class="tool-btn" onclick={() => runEditor("insertUnorderedList")}>• List</button>
+              <button class="tool-btn" title="Bulleted list" aria-label="Bulleted list" onclick={() => runEditor("insertUnorderedList")}>• List</button>
               <div class="tool-sep"></div>
               <div class="tool-color-wrap" title="Font color">
                 <span class="tool-color-meta">
@@ -926,103 +890,6 @@
     background-size: 6px 6px, 6px 6px;
     background-repeat: no-repeat;
     padding-right: 34px;
-  }
-  .color-picker {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .color-swatch-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-    max-width: 300px;
-  }
-  .color-swatch {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    border: 1px solid #dfd7ca;
-    background: #f5efe5;
-    position: relative;
-    cursor: pointer;
-    padding: 0;
-  }
-  .color-swatch::before {
-    content: "";
-    position: absolute;
-    inset: 7px;
-    border-radius: 10px;
-    background: var(--swatch);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-  }
-  .color-swatch.selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(180, 141, 78, 0.14);
-  }
-  .custom-color-btn {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    cursor: pointer;
-    padding: 0 6px;
-    align-self: center;
-    white-space: nowrap;
-  }
-  .custom-color-btn.selected {
-    color: var(--ink);
-    text-decoration: underline;
-    text-underline-offset: 0.28em;
-  }
-  .hidden-color-input {
-    position: absolute;
-    width: 0;
-    height: 0;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .color-preview-copy {
-    margin-top: 2px;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--faint);
-    text-transform: uppercase;
-  }
-  .color-preview-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    border: 1px solid var(--line);
-    background: #f8f3ea;
-  }
-  .avatar-preview {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    color: white;
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .color-preview-name {
-    color: var(--ink);
-    font-size: 13px;
-    font-family: var(--sans);
-  }
-  .color-preview-copy {
-    margin-top: 2px;
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--faint);
-    text-transform: uppercase;
   }
   .toolbar,
   .modal-foot,

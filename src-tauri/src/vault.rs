@@ -195,6 +195,7 @@ fn parse_task_meta(line: &str) -> (String, Task) {
     // line content after "- [ ] " / "- [x] "
     let mut person = String::new();
     let mut due = String::new();
+    let mut due_time = String::new();
     let mut priority = String::new();
     let mut title_parts: Vec<&str> = Vec::new();
     for tok in line.split_whitespace() {
@@ -202,6 +203,8 @@ fn parse_task_meta(line: &str) -> (String, Task) {
             person = v.replace('_', " ");
         } else if let Some(v) = tok.strip_prefix("@due:") {
             due = v.to_string();
+        } else if let Some(v) = tok.strip_prefix("@time:") {
+            due_time = v.to_string();
         } else if let Some(v) = tok.strip_prefix("@priority:") {
             priority = v.to_string();
         } else if tok.starts_with("@done:") || tok.starts_with("@archived:") {
@@ -216,6 +219,7 @@ fn parse_task_meta(line: &str) -> (String, Task) {
             title: String::new(),
             person,
             due,
+            due_time,
             priority,
             column: String::new(),
             done: false,
@@ -281,6 +285,9 @@ fn render_tasks(tasks: &[Task]) -> String {
             }
             if !t.due.is_empty() {
                 line.push_str(&format!(" @due:{}", t.due));
+            }
+            if !t.due_time.is_empty() {
+                line.push_str(&format!(" @time:{}", t.due_time));
             }
             if !t.priority.is_empty() {
                 line.push_str(&format!(" @priority:{}", t.priority));
@@ -422,37 +429,138 @@ fn folders_file(vault: &Path) -> PathBuf {
     vault.join("folders.json")
 }
 
-pub fn list_folders(vault: &Path) -> io::Result<Vec<String>> {
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredFolder {
+    LegacyName(String),
+    Full(Folder),
+}
+
+fn normalize_folder_color(color: &str) -> String {
+    let trimmed = color.trim();
+    if trimmed.is_empty() {
+        "#6b7d9c".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+pub fn list_folders(vault: &Path) -> io::Result<Vec<Folder>> {
     let path = folders_file(vault);
     if !path.exists() {
         return Ok(Vec::new());
     }
     let content = fs::read_to_string(path)?;
-    serde_json::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    let folders: Vec<Folder> = serde_json::from_str::<Vec<StoredFolder>>(&content)
+        .map(|items| {
+            items
+                .into_iter()
+                .filter_map(|item| match item {
+                    StoredFolder::LegacyName(name) => {
+                        let name = name.trim().to_string();
+                        if name.is_empty() {
+                            None
+                        } else {
+                            Some(Folder {
+                                name,
+                                color: "#6b7d9c".to_string(),
+                            })
+                        }
+                    }
+                    StoredFolder::Full(folder) => {
+                        let name = folder.name.trim().to_string();
+                        if name.is_empty() {
+                            None
+                        } else {
+                            Some(Folder {
+                                name,
+                                color: normalize_folder_color(&folder.color),
+                            })
+                        }
+                    }
+                })
+                .collect()
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    Ok(folders)
 }
 
-pub fn create_folder(vault: &Path, name: &str) -> io::Result<()> {
+fn write_folders(vault: &Path, folders: &[Folder]) -> io::Result<()> {
+    let json = serde_json::to_string_pretty(folders)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    fs::write(folders_file(vault), json)
+}
+
+pub fn create_folder(vault: &Path, name: &str, color: &str) -> io::Result<()> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Ok(());
     }
     let mut folders = list_folders(vault)?;
-    if folders.contains(&name) {
+    if folders.iter().any(|folder| folder.name == name) {
         return Ok(());
     }
-    folders.push(name);
-    folders.sort();
-    let json = serde_json::to_string_pretty(&folders)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    fs::write(folders_file(vault), json)
+    folders.push(Folder {
+        name,
+        color: normalize_folder_color(color),
+    });
+    write_folders(vault, &folders)
 }
 
 pub fn delete_folder(vault: &Path, name: &str) -> io::Result<()> {
     let mut folders = list_folders(vault)?;
-    folders.retain(|f| f != name);
-    let json = serde_json::to_string_pretty(&folders)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    fs::write(folders_file(vault), json)
+    folders.retain(|folder| folder.name != name);
+    write_folders(vault, &folders)
+}
+
+pub fn update_folder(vault: &Path, name: &str, next_name: &str, color: &str) -> io::Result<()> {
+    let next_name = next_name.trim();
+    if next_name.is_empty() {
+        return Ok(());
+    }
+
+    let mut folders = list_folders(vault)?;
+    if next_name != name && folders.iter().any(|folder| folder.name == next_name) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "folder already exists",
+        ));
+    }
+
+    if let Some(folder) = folders.iter_mut().find(|folder| folder.name == name) {
+        folder.name = next_name.to_string();
+        folder.color = normalize_folder_color(color);
+    }
+    write_folders(vault, &folders)?;
+
+    let people = list_people(vault)?;
+    for person in people.into_iter().filter(|person| person.group == name) {
+        let updated = Frontmatter {
+            name: person.name,
+            role: person.role,
+            bio: person.bio,
+            color: person.color,
+            group: next_name.to_string(),
+        };
+        update_person(vault, &person.slug, &updated)?;
+    }
+
+    Ok(())
+}
+
+pub fn reorder_folders(vault: &Path, ordered_names: &[String]) -> io::Result<()> {
+    let folders = list_folders(vault)?;
+    let mut remaining = folders;
+    let mut ordered: Vec<Folder> = Vec::new();
+
+    for name in ordered_names {
+        if let Some(index) = remaining.iter().position(|folder| folder.name == *name) {
+            ordered.push(remaining.remove(index));
+        }
+    }
+
+    ordered.extend(remaining);
+    write_folders(vault, &ordered)
 }
 
 // ---------------------------------------------------------------------------

@@ -364,6 +364,7 @@ fn create_person(
     name: String,
     role: String,
     color: String,
+    group: String,
     state: State<AppState>,
     tray: State<TrayState>,
     app: tauri::AppHandle,
@@ -374,7 +375,7 @@ fn create_person(
         role,
         bio: String::new(),
         color,
-        group: String::new(),
+        group,
     };
     let person = vault::create_person(&v, &fm).map_err(|e| e.to_string())?;
     refresh_tray_menu(&app, &tray, &v);
@@ -445,15 +446,27 @@ fn update_conversation(
 }
 
 #[tauri::command]
-fn list_folders(state: State<AppState>) -> Result<Vec<String>, String> {
+fn list_folders(state: State<AppState>) -> Result<Vec<Folder>, String> {
     let v = state.vault.lock().unwrap().clone();
     vault::list_folders(&v).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn create_folder(name: String, state: State<AppState>) -> Result<(), String> {
+fn create_folder(name: String, color: String, state: State<AppState>) -> Result<(), String> {
     let v = state.vault.lock().unwrap().clone();
-    vault::create_folder(&v, &name).map_err(|e| e.to_string())
+    vault::create_folder(&v, &name, &color).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_folder(name: String, next_name: String, color: String, state: State<AppState>) -> Result<(), String> {
+    let v = state.vault.lock().unwrap().clone();
+    vault::update_folder(&v, &name, &next_name, &color).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reorder_folders(names: Vec<String>, state: State<AppState>) -> Result<(), String> {
+    let v = state.vault.lock().unwrap().clone();
+    vault::reorder_folders(&v, &names).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -535,10 +548,18 @@ async fn install_update(
 pub fn run() {
     let vault = initial_vault();
     let _ = vault::ensure_vault(&vault);
+    let context_menu_guard = r#"
+      window.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+      }, true);
+    "#;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_page_load(move |webview, _| {
+            let _ = webview.eval(context_menu_guard);
+        })
         .manage(AppState {
             vault: Mutex::new(vault),
         })
@@ -565,6 +586,8 @@ pub fn run() {
             update_conversation,
             list_folders,
             create_folder,
+            update_folder,
+            reorder_folders,
             delete_folder,
             get_updater_status,
             check_for_update,

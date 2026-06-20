@@ -1,6 +1,6 @@
 <script>
   import ConfirmModal from "./ConfirmModal.svelte";
-  import { appAction, clearAppAction, tasks, people, priorityColor, daysSince, dayLabel, initials } from "../stores.js";
+  import { appAction, clearAppAction, tasks, people, folders, priorityColor, daysSince, dayLabel, initials, colorForPerson } from "../stores.js";
   import { saveTasks } from "../api.js";
 
   const columns = [
@@ -17,6 +17,7 @@
   let title    = $state("");
   let taskPeople = $state([]);   // array of person names
   let due      = $state("");
+  let dueTime  = $state("");
   let priority = $state("med");
   let peopleInput = $state("");  // autocomplete input for adding people
   let peoplePickerOpen = $state(false);
@@ -136,6 +137,11 @@
     });
   }
 
+  function formatTaskDue(task) {
+    if (!task?.due) return "";
+    return task.due_time ? `${task.due} ${task.due_time}` : task.due;
+  }
+
   function shiftMonth(iso, delta) {
     const date = parseIsoDate(iso) || new Date();
     return formatIsoDate(new Date(date.getFullYear(), date.getMonth() + delta, 1));
@@ -174,6 +180,7 @@
     if (!t) { quickAdding = false; quickTitle = ""; return; }
     await persist([{
       title: t, people: [], due: "", priority: "med",
+      due_time: "",
       column: "todo", done: false, completed_at: "", archived: false,
     }, ...$tasks]);
     quickTitle = "";
@@ -184,6 +191,7 @@
   function openNew() {
     creating = true; editingIndex = -1; modalOpen = true;
     title = ""; taskPeople = []; due = ""; priority = "med"; peopleInput = "";
+    dueTime = "";
     peoplePickerOpen = false;
     datePickerOpen = false;
     visibleMonth = startOfMonthIso(todayIso());
@@ -196,6 +204,7 @@
     title = task.title;
     taskPeople = [...taskPeopleList(task)];
     due = task.due || "";
+    dueTime = task.due_time || "";
     priority = task.priority || "med";
     peopleInput = "";
     peoplePickerOpen = false;
@@ -253,6 +262,7 @@
         title: title.trim() || "Untitled task",
         people: [...taskPeople],
         due: due.trim(),
+        due_time: dueTime.trim(),
         priority,
         column: "todo",
         done: false,
@@ -266,6 +276,7 @@
         title: title.trim() || cur.title,
         people: [...taskPeople],
         due: due.trim(),
+        due_time: dueTime.trim(),
         priority,
       };
     }
@@ -533,7 +544,7 @@
                 {#each taskPeopleList(task).slice(0, 3) as name}
                   {@const p = personFor(name)}
                   {#if p}
-                    <span class="person-av" style="background:{p.color}" title={p.name}>{initials(p.name)}</span>
+                    <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
                   {:else}
                     <span class="person-text">{name}</span>
                   {/if}
@@ -543,7 +554,7 @@
                 {/if}
               </div>
               {#if task.due}
-                <span class="due-tag">{task.due}</span>
+                <span class="due-tag">{formatTaskDue(task)}</span>
               {/if}
             </div>
           </div>
@@ -587,7 +598,7 @@
                 {#each taskPeopleList(task).slice(0, 3) as name}
                   {@const p = personFor(name)}
                   {#if p}
-                    <span class="person-av" style="background:{p.color}" title={p.name}>{initials(p.name)}</span>
+                    <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
                   {:else}
                     <span class="person-text">{name}</span>
                   {/if}
@@ -597,7 +608,7 @@
                 {/if}
               </div>
               {#if task.due}
-                <span class="due-tag">{task.due}</span>
+                <span class="due-tag">{formatTaskDue(task)}</span>
               {/if}
             </div>
           </div>
@@ -715,7 +726,7 @@
 
       <label class="field">
         <span>TITLE</span>
-        <input bind:value={title} placeholder="What needs doing?" />
+        <textarea class="task-title-input" bind:value={title} placeholder="What needs doing?" rows="3"></textarea>
       </label>
 
       <div class="field">
@@ -725,7 +736,7 @@
             {@const p = personFor(name)}
             <span class="people-chip">
               {#if p}
-                <span class="chip-av" style="background:{p.color}">{initials(p.name)}</span>
+                <span class="chip-av" style="background:{colorForPerson(p, $folders)}">{initials(p.name)}</span>
               {/if}
               <span>{name}</span>
               <button class="chip-remove" onclick={() => removePersonFromTask(name)} title="Remove">×</button>
@@ -756,7 +767,7 @@
                 {#each filteredPeopleOptions as name}
                   <button class="people-suggestion" onclick={() => addPersonToTask(name)}>
                     {#if personFor(name)}
-                      <span class="people-suggestion-av" style="background:{personFor(name).color}">{initials(personFor(name).name)}</span>
+                      <span class="people-suggestion-av" style="background:{colorForPerson(personFor(name), $folders)}">{initials(personFor(name).name)}</span>
                     {/if}
                     <span class="people-suggestion-name">{name}</span>
                   </button>
@@ -807,6 +818,11 @@
           {/if}
         </div>
       </div>
+
+      <label class="field">
+        <span>TIME</span>
+        <input bind:value={dueTime} type="time" />
+      </label>
 
       <div class="field">
         <span>PRIORITY</span>
@@ -1035,7 +1051,6 @@
     border-radius: 10px;
     padding: 11px 12px 10px 15px;
     margin-bottom: 7px;
-    cursor: grab;
     text-align: left;
     box-shadow: 0 1px 3px rgba(60, 50, 30, 0.05);
     transition: box-shadow 0.1s ease, transform 0.1s ease;
@@ -1048,7 +1063,6 @@
   .card--drop-target {
     box-shadow: inset 0 2px 0 0 var(--accent), 0 4px 14px rgba(60, 50, 30, 0.1);
   }
-  .card:active { cursor: grabbing; }
   .drag-ghost {
     position: fixed;
     z-index: 160;
@@ -1276,7 +1290,8 @@
     letter-spacing: 0.12em;
     color: var(--faint);
   }
-  .field > input {
+  .field > input,
+  .field > textarea {
     border: 1px solid var(--line-2);
     border-radius: 8px;
     padding: 9px 11px;
@@ -1284,8 +1299,14 @@
     background: var(--card);
     color: var(--ink);
   }
-  .field > input:focus {
+  .field > input:focus,
+  .field > textarea:focus {
     outline: none; border-color: var(--accent);
+  }
+  .task-title-input {
+    min-height: 88px;
+    resize: vertical;
+    line-height: 1.45;
   }
   .date-picker {
     position: relative;

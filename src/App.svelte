@@ -73,6 +73,8 @@
   });
 </script>
 
+<svelte:window oncontextmenu={(event) => event.preventDefault()} />
+
 <div class="shell">
   <Sidebar />
   <main>
