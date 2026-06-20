@@ -25,19 +25,9 @@ pub struct Frontmatter {
     #[serde(default)]
     pub bio: String,
     #[serde(default)]
-    pub joined: String,
-    #[serde(default = "default_cadence")]
-    pub cadence_weeks: u32,
-    #[serde(default)]
     pub color: String,
     #[serde(default)]
-    pub next_1on1: String,
-    #[serde(default)]
     pub group: String,
-}
-
-fn default_cadence() -> u32 {
-    2
 }
 
 /// A person, assembled from one `people/<slug>.md` file.
@@ -47,15 +37,10 @@ pub struct Person {
     pub name: String,
     pub role: String,
     pub bio: String,
-    pub joined: String,
-    pub cadence_weeks: u32,
     pub color: String,
-    pub next_1on1: String,
     pub group: String,
     /// Date of the most recent conversation, if any.
     pub last_met: Option<String>,
-    /// Derived: "over" | "due" | "ok".
-    pub status: String,
     pub conversations: Vec<Conversation>,
 }
 
@@ -75,4 +60,29 @@ pub struct Task {
     pub completed_at: String,
     #[serde(default)]
     pub archived: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct AppSettings {
+    #[serde(default = "default_true")]
+    pub auto_archive_done: bool,
+    #[serde(default = "default_archive_days")]
+    pub auto_archive_days: u32,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_archive_days() -> u32 {
+    7
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            auto_archive_done: true,
+            auto_archive_days: default_archive_days(),
+        }
+    }
 }

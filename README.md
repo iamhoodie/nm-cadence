@@ -1,4 +1,4 @@
-# Cadence
+# SideEye
 
 A local-first desktop app for tracking your 1:1 conversations and personal tasks.
 Built with **Tauri 2** (Rust) + **Svelte 5** (Vite). All your data lives as plain
@@ -40,7 +40,7 @@ npm run dev
 
 ## App updates
 
-Cadence now supports **in-app updates with Tauri’s updater plugin**.
+SideEye now supports **in-app updates with Tauri’s updater plugin**.
 
 ### 1. Generate a signing key once
 

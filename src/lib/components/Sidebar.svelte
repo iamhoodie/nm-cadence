@@ -1,7 +1,9 @@
 <script>
   import { screen, selectedSlug, people, folders, initials } from "../stores.js";
   import { createFolder, deleteFolder, updatePerson } from "../api.js";
+  import ConfirmModal from "./ConfirmModal.svelte";
   import UpdaterPanel from "./UpdaterPanel.svelte";
+  import sideEyeLogo from "../assets/sideeye-logo.png";
 
   function open(slug) {
     selectedSlug.set(slug);
@@ -11,6 +13,7 @@
   const navItems = [
     { key: "people", label: "People", screens: ["people", "person"] },
     { key: "tasks", label: "Tasks", screens: ["tasks"] },
+    { key: "conversations", label: "Conversations", screens: ["conversations"] },
   ];
 
   let searchQuery = $state("");
@@ -18,6 +21,10 @@
   let newFolderName = $state("");
   let collapsed = $state(new Set());
   let draggedSlug = $state(null);
+  let dragMoved = $state(false);
+  let activeDropGroup = $state("");
+  let confirmState = $state(null);
+  let pointerDrag = $state(null);
 
   const visiblePeople = $derived(
     searchQuery.trim()
@@ -75,10 +82,7 @@
         name: person.name,
         role: person.role,
         bio: person.bio || "",
-        cadence_weeks: person.cadence_weeks,
         color: person.color,
-        next_1on1: person.next_1on1 || "",
-        joined: person.joined || "",
         group: "",
       });
       people.update((list) => list.map((item) => (item.slug === updated.slug ? updated : item)));
@@ -87,37 +91,133 @@
     folders.update((list) => list.filter((folder) => folder !== name));
   }
 
-  function startDragPerson(event, slug) {
-    draggedSlug = slug;
-    event.dataTransfer?.setData("text/person-slug", slug);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  function requestRemoveFolder(name) {
+    const affectedCount = $people.filter((person) => person.group === name).length;
+    confirmState = {
+      title: "Delete folder?",
+      message: `Delete "${name}" and move ${affectedCount} ${affectedCount === 1 ? "person" : "people"} out of it? People will be kept, but the folder will be removed.`,
+      confirmLabel: "Delete folder",
+      action: async () => {
+        await removeFolder(name);
+      },
+    };
   }
 
-  async function assignGroup(group, event) {
-    event?.preventDefault();
-    const slug = event?.dataTransfer?.getData("text/person-slug") || draggedSlug;
+  function closeConfirmModal() {
+    confirmState = null;
+  }
+
+  async function confirmAction() {
+    const action = confirmState?.action;
+    confirmState = null;
+    if (action) await action();
+  }
+
+  async function assignGroup(group, slug = draggedSlug) {
     if (!slug) return;
     const person = $people.find((item) => item.slug === slug);
     draggedSlug = null;
+    activeDropGroup = "";
     if (!person) return;
     const updated = await updatePerson(person.slug, {
       name: person.name,
       role: person.role,
       bio: person.bio || "",
-      cadence_weeks: person.cadence_weeks,
       color: person.color,
-      next_1on1: person.next_1on1 || "",
-      joined: person.joined || "",
       group: group === "__ungrouped" ? "" : group,
     });
     people.update((list) => list.map((item) => (item.slug === updated.slug ? updated : item)));
+  }
+
+  function activateDropGroup(group) {
+    activeDropGroup = group;
+  }
+
+  function clearDropGroup(group = "") {
+    if (!group || activeDropGroup === group) activeDropGroup = "";
+  }
+
+  function maybeOpenPerson(slug) {
+    if (dragMoved) {
+      dragMoved = false;
+      return;
+    }
+    open(slug);
+  }
+
+  function updateDropGroupAtPoint(clientX, clientY) {
+    const zone = document.elementFromPoint(clientX, clientY)?.closest("[data-drop-group]");
+    activeDropGroup = zone?.dataset.dropGroup || "";
+    return activeDropGroup;
+  }
+
+  function onPointerMove(event) {
+    if (!pointerDrag) return;
+    const moved =
+      Math.abs(event.clientX - pointerDrag.startX) > 6 ||
+      Math.abs(event.clientY - pointerDrag.startY) > 6;
+
+    pointerDrag = {
+      ...pointerDrag,
+      x: event.clientX,
+      y: event.clientY,
+      active: pointerDrag.active || moved,
+    };
+
+    if (pointerDrag.active || moved) {
+      dragMoved = true;
+      updateDropGroupAtPoint(event.clientX, event.clientY);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
+    }
+  }
+
+  async function onPointerUp(event) {
+    const drag = pointerDrag;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+
+    pointerDrag = null;
+    draggedSlug = null;
+
+    if (!drag?.active) {
+      clearDropGroup();
+      return;
+    }
+
+    const group = updateDropGroupAtPoint(event.clientX, event.clientY);
+    clearDropGroup();
+    if (group) {
+      await assignGroup(group, drag.slug);
+    }
+  }
+
+  function beginPointerDrag(event, person) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    draggedSlug = person.slug;
+    dragMoved = false;
+    pointerDrag = {
+      slug: person.slug,
+      label: person.name,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
   }
 </script>
 
 <aside>
   <div class="brand">
-    <div class="logo">NM</div>
-    <span>Cadence</span>
+    <img class="logo-image" src={sideEyeLogo} alt="SideEye" />
+    <span>SideEye</span>
   </div>
 
   <nav>
@@ -142,9 +242,9 @@
     {#each groups() as group}
       <div
         class="folder-block"
+        class:folder-block--active={activeDropGroup === group.key}
+        data-drop-group={group.key}
         role="group"
-        ondragover={(event) => event.preventDefault()}
-        ondrop={(event) => assignGroup(group.key, event)}
       >
         <div class="folder-row">
           <button class="folder-toggle" onclick={() => toggleCollapse(group.key)}>
@@ -153,26 +253,27 @@
             <span class="folder-count">{group.people.length}</span>
           </button>
           {#if group.key !== "__ungrouped"}
-            <button class="folder-del" onclick={() => removeFolder(group.key)} title="Remove folder">×</button>
+            <button class="folder-del" onclick={() => requestRemoveFolder(group.key)} title="Remove folder">×</button>
           {/if}
         </div>
 
         {#if !collapsed.has(group.key)}
           {#each group.people as person (person.slug)}
-            <button
+            <div
               class="row"
               class:active={$selectedSlug === person.slug && $screen === "person"}
-              draggable="true"
-              ondragstart={(event) => startDragPerson(event, person.slug)}
-              ondragend={() => (draggedSlug = null)}
-              onclick={() => open(person.slug)}
+              role="button"
+              tabindex="0"
+              onpointerdown={(event) => beginPointerDrag(event, person)}
+              onclick={() => maybeOpenPerson(person.slug)}
+              onkeydown={(event) => event.key === "Enter" && maybeOpenPerson(person.slug)}
             >
               <span class="avatar" style="background:{person.color}">{initials(person.name)}</span>
               <span class="who">
                 <span class="name">{person.name}</span>
                 <span class="role">{person.role}</span>
               </span>
-            </button>
+            </div>
           {/each}
           {#if group.people.length === 0}
             <div class="folder-empty">Drop a person here</div>
@@ -210,6 +311,30 @@
   <UpdaterPanel />
 </aside>
 
+{#if pointerDrag?.active}
+  <div
+    class="drag-ghost"
+    style={`left:${pointerDrag.x + 14}px;top:${pointerDrag.y + 14}px;`}
+  >
+    <span class="drag-ghost-avatar">
+      {initials($people.find((item) => item.slug === pointerDrag.slug)?.name || pointerDrag.label)}
+    </span>
+    <div class="drag-ghost-body">
+      <div class="drag-ghost-title">{pointerDrag.label}</div>
+      <div class="drag-ghost-meta">Move to folder</div>
+    </div>
+  </div>
+{/if}
+
+<ConfirmModal
+  open={!!confirmState}
+  title={confirmState?.title}
+  message={confirmState?.message}
+  confirmLabel={confirmState?.confirmLabel}
+  onCancel={closeConfirmModal}
+  onConfirm={confirmAction}
+/>
+
 <style>
   aside {
     width: 272px;
@@ -228,18 +353,12 @@
     padding: 0 8px;
     margin-bottom: 24px;
   }
-  .logo {
+  .logo-image {
     width: 28px;
     height: 28px;
-    border-radius: 10px;
-    background: var(--accent);
-    color: white;
-    display: grid;
-    place-items: center;
-    font-family: var(--serif);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    border-radius: 8px;
+    object-fit: cover;
+    flex: none;
   }
   .brand span {
     font-family: var(--serif);
@@ -301,6 +420,11 @@
   }
   .folder-block {
     border-radius: 9px;
+    transition: background 0.14s ease, box-shadow 0.14s ease;
+  }
+  .folder-block--active {
+    background: linear-gradient(180deg, rgba(187, 160, 121, 0.12), rgba(187, 160, 121, 0.04));
+    box-shadow: inset 0 0 0 1px rgba(180, 141, 78, 0.24);
   }
   .folder-row {
     display: flex;
@@ -365,9 +489,57 @@
     background: transparent;
     text-align: left;
     border-radius: 8px;
+    cursor: grab;
+    user-select: none;
   }
   .row:hover {
     background: #e7e1d3;
+  }
+  .row:active {
+    cursor: grabbing;
+  }
+  .drag-ghost {
+    position: fixed;
+    z-index: 160;
+    max-width: 220px;
+    pointer-events: none;
+    background: rgba(252, 249, 243, 0.96);
+    border: 1px solid #d9cfbe;
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(50, 39, 20, 0.14);
+    padding: 10px 12px;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.35;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .drag-ghost-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #8b7f69;
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 600;
+    flex: none;
+  }
+  .drag-ghost-body {
+    min-width: 0;
+  }
+  .drag-ghost-title {
+    font-weight: 500;
+  }
+  .drag-ghost-meta {
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-2);
   }
   .row.active {
     background: #e2dccd;

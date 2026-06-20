@@ -20,6 +20,10 @@ async function invoke(cmd, args) {
 // --- browser fallback state ---
 let mockPeople = structuredClone(SAMPLE_PEOPLE);
 let mockTasks = structuredClone(SAMPLE_TASKS);
+let mockAppSettings = {
+  auto_archive_done: true,
+  auto_archive_days: 7,
+};
 
 export async function listPeople() {
   if (!inTauri) return structuredClone(mockPeople);
@@ -59,7 +63,21 @@ export async function listTasks() {
 
 export async function saveTasks(tasks) {
   if (!inTauri) {
-    mockTasks = structuredClone(tasks);
+    mockTasks = structuredClone(tasks).map((task) => {
+      if (
+        mockAppSettings.auto_archive_done &&
+        task.column === "done" &&
+        !task.archived &&
+        task.completed_at
+      ) {
+        const done = new Date(`${task.completed_at}T00:00:00`);
+        const days = Math.round((Date.now() - done.getTime()) / 86400000);
+        if (days >= Math.max(1, mockAppSettings.auto_archive_days)) {
+          return { ...task, archived: true };
+        }
+      }
+      return task;
+    });
     return;
   }
   return invoke("save_tasks", { tasks });
@@ -80,15 +98,36 @@ export async function pickVault() {
   return invoke("pick_vault");
 }
 
-export async function createPerson({ name, role, cadence_weeks, color }) {
+export async function createVaultBackup() {
+  if (!inTauri) {
+    return {
+      path: "(browser preview — backup unavailable)",
+    };
+  }
+  return invoke("create_vault_backup");
+}
+
+export async function getAppSettings() {
+  if (!inTauri) return structuredClone(mockAppSettings);
+  return invoke("get_app_settings");
+}
+
+export async function saveAppSettings(settings) {
+  if (!inTauri) {
+    mockAppSettings = structuredClone(settings);
+    return structuredClone(mockAppSettings);
+  }
+  return invoke("save_app_settings", { settings });
+}
+
+export async function createPerson({ name, role, color }) {
   if (!inTauri) {
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const p = { slug, name, role: role || "", bio: "", cadence_weeks: cadence_weeks || 2, color: color || "#6b7d9c", joined: "", next_1on1: "", group: "", last_met: null, status: "due", conversations: [] };
+    const p = { slug, name, role: role || "", bio: "", color: color || "#6b7d9c", group: "", last_met: null, conversations: [] };
     mockPeople.push(p);
     return structuredClone(p);
   }
-  // Tauri 2 converts snake_case param names to camelCase for invoke args
-  return invoke("create_person", { name, role, cadenceWeeks: cadence_weeks, color });
+  return invoke("create_person", { name, role, color });
 }
 
 export async function deletePerson(slug) {
@@ -99,15 +138,15 @@ export async function deletePerson(slug) {
   return invoke("delete_person", { slug });
 }
 
-export async function updatePerson(slug, { name, role, bio, cadence_weeks, color, next_1on1, joined, group }) {
+export async function updatePerson(slug, { name, role, bio, color, group }) {
   if (!inTauri) {
     const idx = mockPeople.findIndex((p) => p.slug === slug);
     if (idx >= 0) {
-      mockPeople[idx] = { ...mockPeople[idx], name, role, bio, cadence_weeks, color, next_1on1, joined, group: group || "" };
+      mockPeople[idx] = { ...mockPeople[idx], name, role, bio, color, group: group || "" };
     }
     return structuredClone(mockPeople[idx]);
   }
-  return invoke("update_person", { slug, name, role, bio, cadenceWeeks: cadence_weeks, color, next1on1: next_1on1, joined, group: group || "" });
+  return invoke("update_person", { slug, name, role, bio, color, group: group || "" });
 }
 
 export async function deleteConversation(slug, date, title) {
@@ -166,4 +205,10 @@ export async function checkForUpdate() {
 export async function installUpdate() {
   if (!inTauri) return;
   return invoke("install_update");
+}
+
+export async function listenToMenuActions(handler) {
+  if (!inTauri) return () => {};
+  const mod = await import("@tauri-apps/api/event");
+  return mod.listen("menu-action", (event) => handler(event.payload));
 }

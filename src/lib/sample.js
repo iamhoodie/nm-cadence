@@ -84,12 +84,8 @@ function conv(slug, name, role, color, lastMet, conversations) {
     role,
     bio: "",
     color,
-    cadence_weeks: 2,
-    next_1on1: "2026-06-30",
-    joined: "",
     group: "Direct reports",
     last_met: lastMet,
-    status: statusFor(lastMet, 2),
     conversations,
   };
 }
@@ -100,13 +96,4 @@ function bare(slug, name, role, color, lastMet) {
 
 function task(title, person, due, priority, column, done = false, completed_at = "", archived = false) {
   return { title, person, due, priority, column, done, completed_at, archived };
-}
-
-function statusFor(lastMet, weeks) {
-  if (!lastMet) return "due";
-  const days = Math.round((Date.now() - new Date(lastMet).getTime()) / 86400000);
-  const cadence = weeks * 7;
-  if (days > cadence) return "over";
-  if (days >= cadence - 3) return "due";
-  return "ok";
 }

@@ -1,12 +1,15 @@
 <script>
   import { tick } from "svelte";
+  import ConfirmModal from "./ConfirmModal.svelte";
   import {
+    appAction,
+    clearAppAction,
     people,
     tasks,
     folders,
     screen,
     selectedSlug,
-    statusMeta,
+    targetConversation,
     initials,
     formatDate,
     relative,
@@ -20,7 +23,6 @@
   } from "../api.js";
 
   const person = $derived($people.find((item) => item.slug === $selectedSlug));
-  const meta = $derived(person ? statusMeta(person.status) : null);
   const linkedTasks = $derived(
     person
       ? $tasks.filter((task) => {
@@ -58,8 +60,15 @@
   let formColor = $state("#6b7d9c");
 
   let editorElement = $state();
-  let imageInput = $state();
   let colorInput = $state();
+  let profileColorInput = $state();
+  let confirmState = $state(null);
+  let handledActionToken = $state(0);
+  let highlightedConversationKey = $state("");
+  let highlightTimeout = $state(null);
+  let conversationAnchorVersion = $state(0);
+  let notesElement = $state();
+  const conversationNodes = new Map();
 
   function today() {
     return new Date().toISOString().slice(0, 10);
@@ -111,30 +120,6 @@
   function formatBlock(tag) {
     editorElement?.focus();
     document.execCommand("formatBlock", false, tag);
-    syncStateFromEditor();
-  }
-
-  function chooseImage() {
-    imageInput?.click();
-  }
-
-  async function insertImages(event) {
-    const files = [...(event.currentTarget.files || [])];
-    if (!files.length) return;
-    for (const file of files) {
-      const dataUrl = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(file);
-      });
-      editorElement?.focus();
-      document.execCommand(
-        "insertHTML",
-        false,
-        `<figure class="note-image"><img src="${dataUrl}" alt="${file.name}" /></figure><p></p>`
-      );
-    }
-    event.currentTarget.value = "";
     syncStateFromEditor();
   }
 
@@ -213,16 +198,21 @@
     formColor = person.color || "#6b7d9c";
   }
 
+  function isPresetColor(color) {
+    return COLORS.includes(color);
+  }
+
+  function openProfileColorPicker() {
+    profileColorInput?.click();
+  }
+
   async function savePersonEdits() {
     if (!person || !formName.trim()) return;
     const updated = await updatePerson(person.slug, {
       name: formName.trim(),
       role: formRole.trim(),
       bio: formBio.trim(),
-      cadence_weeks: person.cadence_weeks,
       color: formColor,
-      next_1on1: "",
-      joined: person.joined || "",
       group: formGroup.trim(),
     });
     people.update((list) => list.map((item) => (item.slug === updated.slug ? updated : item)));
@@ -231,12 +221,139 @@
 
   async function removePerson() {
     if (!person) return;
-    if (!confirm(`Delete ${person.name}? Their notes and linked history will be removed.`)) return;
     await deletePerson(person.slug);
     people.update((list) => list.filter((item) => item.slug !== person.slug));
     selectedSlug.set(null);
     screen.set("people");
   }
+
+  function requestRemoveConversation(conv) {
+    confirmState = {
+      title: "Delete 1:1 note?",
+      message: `Delete "${conv.title}" from ${formatDate(conv.date)}? This removes its notes and action items.`,
+      confirmLabel: "Delete note",
+      action: async () => {
+        await removeConversation(conv);
+      },
+    };
+  }
+
+  function requestRemovePerson() {
+    if (!person) return;
+    confirmState = {
+      title: `Delete ${person.name}?`,
+      message: "This removes the person, their notes, and linked history permanently.",
+      confirmLabel: "Delete person",
+      action: async () => {
+        await removePerson();
+      },
+    };
+  }
+
+  function closeConfirmModal() {
+    confirmState = null;
+  }
+
+  async function confirmAction() {
+    const action = confirmState?.action;
+    confirmState = null;
+    if (action) await action();
+  }
+
+  function conversationKey(conv) {
+    return `${conv.date}::${conv.title}`;
+  }
+
+  function setConversationNode(key, node) {
+    if (node) conversationNodes.set(key, node);
+    else conversationNodes.delete(key);
+    conversationAnchorVersion += 1;
+  }
+
+  function conversationAnchor(node, key) {
+    setConversationNode(key, node);
+    return {
+      update(nextKey) {
+        if (nextKey !== key) {
+          setConversationNode(key, null);
+          key = nextKey;
+          setConversationNode(key, node);
+        }
+      },
+      destroy() {
+        setConversationNode(key, null);
+      },
+    };
+  }
+
+  function queueConversationHighlight(key) {
+    highlightedConversationKey = key;
+    if (highlightTimeout) window.clearTimeout(highlightTimeout);
+    highlightTimeout = window.setTimeout(() => {
+      highlightedConversationKey = "";
+      highlightTimeout = null;
+    }, 2200);
+  }
+
+  function offsetWithinContainer(node, container) {
+    let top = 0;
+    let current = node;
+    while (current && current !== container) {
+      top += current.offsetTop || 0;
+      current = current.offsetParent;
+    }
+    return top;
+  }
+
+  function scrollToTargetConversation(target, attempt = 0) {
+    const key = `${target.date}::${target.title}`;
+    scrollToConversationKey(key, attempt, true);
+  }
+
+  function scrollToConversationKey(key, attempt = 0, clearTargetWhenDone = false) {
+    const node = conversationNodes.get(key);
+    if (!node || !notesElement) {
+      if (attempt < 8) {
+        window.setTimeout(() => scrollToConversationKey(key, attempt + 1, clearTargetWhenDone), 40);
+      }
+      return;
+    }
+
+    const offsetTop = offsetWithinContainer(node, notesElement);
+    const targetTop = Math.max(0, offsetTop - 28);
+
+    notesElement.scrollTo({
+      top: targetTop,
+      behavior: attempt === 0 ? "smooth" : "auto",
+    });
+
+    queueConversationHighlight(key);
+
+    const closeEnough = Math.abs(notesElement.scrollTop - targetTop) < 6;
+    if (closeEnough || attempt >= 10) {
+      if (clearTargetWhenDone) targetConversation.set(null);
+      return;
+    }
+
+    window.setTimeout(() => scrollToConversationKey(key, attempt + 1, clearTargetWhenDone), 60);
+  }
+
+  $effect(() => {
+    const action = $appAction;
+    if (!action?.token || action.token === handledActionToken) return;
+    if (action.type !== "new-1on1") return;
+    handledActionToken = action.token;
+    openConversationModal("create");
+    clearAppAction();
+  });
+
+  $effect(() => {
+    const target = $targetConversation;
+    conversationAnchorVersion;
+    if (!target || !person || target.slug !== person.slug) return;
+
+    tick().then(() => scrollToTargetConversation(target));
+  });
 </script>
 
 {#if person}
@@ -260,14 +377,18 @@
   </div>
 
   <div class="split">
-    <section class="scroll notes">
+    <section class="scroll notes" bind:this={notesElement}>
       <div class="section-row">
         <div class="mono-label section-label">CONVERSATIONS</div>
       </div>
 
       {#if person.conversations.length}
         {#each person.conversations as conv, index (conv.date + conv.title)}
-          <div class="entry">
+          <div
+            class="entry"
+            class:entry--highlighted={highlightedConversationKey === conversationKey(conv)}
+            use:conversationAnchor={conversationKey(conv)}
+          >
             <div class="rail">
               <span class="rdot"></span>
               {#if index < person.conversations.length - 1}<span class="rline"></span>{/if}
@@ -281,7 +402,7 @@
                 </div>
                 <div class="conv-actions">
                   <button class="conv-btn" onclick={() => openConversationModal("edit", conv)}>Edit</button>
-                  <button class="conv-btn del" onclick={() => removeConversation(conv)}>Delete</button>
+                  <button class="conv-btn del" onclick={() => requestRemoveConversation(conv)}>Delete</button>
                 </div>
               </div>
               <div class="title">{conv.title}</div>
@@ -304,27 +425,57 @@
         <div class="empty">
           <div class="empty-title">No conversations logged yet</div>
           <div class="empty-sub">Capture notes, images, and action items from your 1:1s in one place.</div>
-          <button class="solid-btn" onclick={() => openConversationModal("create")}>+ Log first 1:1</button>
+          <button class="solid-btn empty-cta" onclick={() => openConversationModal("create")}>+ Log first 1:1</button>
         </div>
       {/if}
     </section>
 
     <aside class="meta">
-      {#if editingPerson}
-        <div class="meta-head">
-          <div class="mono-label">EDIT PERSON</div>
-        </div>
+      <div class="meta-head">
+        <div class="mono-label">PROFILE</div>
+        <button class="ghost-btn-sm" onclick={beginEditPerson}>Edit</button>
+      </div>
+      <div class="meta-block">
+        <div class="mono-label">BIO</div>
+        <div class="bio">{person.bio || "No bio yet."}</div>
+      </div>
+      <div class="meta-block">
+        <div class="mono-label">LINKED TASKS</div>
+        {#each linkedTasks as task}
+          <div class="ltask">
+            <span class="ldot"></span>
+            <div>
+              <div class="lt-title">{task.title}</div>
+              <div class="lt-due">{task.due || "No due date"} · {task.priority}</div>
+            </div>
+          </div>
+        {:else}
+          <div class="bio">No linked tasks.</div>
+        {/each}
+      </div>
+    </aside>
+  </div>
+{/if}
+
+{#if editingPerson && person}
+  <div class="overlay">
+    <div class="modal profile-modal">
+      <div class="modal-top">
+        <div class="modal-head">Edit person</div>
+      </div>
+
+      <div class="profile-modal-body">
         <label class="field"><span>NAME</span><input bind:value={formName} /></label>
         <label class="field"><span>ROLE</span><input bind:value={formRole} /></label>
         <label class="field"><span>BIO</span><textarea bind:value={formBio} rows="6"></textarea></label>
         <label class="field">
           <span>FOLDER</span>
-          <input list="folders" bind:value={formGroup} placeholder="Folder name" />
-          <datalist id="folders">
+          <select bind:value={formGroup}>
+            <option value="">Unfiled</option>
             {#each folderOptions() as option}
-              <option value={option}></option>
+              <option value={option}>{option}</option>
             {/each}
-          </datalist>
+          </select>
         </label>
         <label class="field">
           <span>COLOR</span>
@@ -340,54 +491,39 @@
                   aria-label={`Select ${color}`}
                 ></button>
               {/each}
-              <label class="color-custom" aria-label="Choose custom color">
-                <input type="color" bind:value={formColor} class="color-wheel" />
-                <span class="color-custom-face" style={`--swatch:${formColor}`}></span>
-              </label>
+              <button
+                type="button"
+                class="custom-color-btn"
+                class:selected={!isPresetColor(formColor)}
+                onclick={openProfileColorPicker}
+              >
+                Custom
+              </button>
             </div>
+            <input bind:this={profileColorInput} class="hidden-color-input" type="color" bind:value={formColor} />
             <div class="color-preview-card">
               <span class="avatar-preview" style="background:{formColor}">{initials(formName || person.name)}</span>
               <div>
                 <div class="color-preview-name">{formName || person.name}</div>
-                <div class="color-preview-value">{formColor}</div>
+                <div class="color-preview-copy">Avatar preview</div>
               </div>
             </div>
           </div>
         </label>
-        <div class="meta-actions">
-          <button class="icon-btn icon-btn--danger" onclick={removePerson} title="Delete person" aria-label="Delete person">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v7h-2v-7Zm4 0h2v7h-2v-7ZM7 10h2v7H7v-7Zm-1 10h12l1-12H5l1 12Z" fill="currentColor"></path>
-            </svg>
-          </button>
+      </div>
+
+      <div class="modal-foot">
+        <button class="icon-btn icon-btn--danger" onclick={requestRemovePerson} title="Delete person" aria-label="Delete person">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v7h-2v-7Zm4 0h2v7h-2v-7ZM7 10h2v7H7v-7Zm-1 10h12l1-12H5l1 12Z" fill="currentColor"></path>
+          </svg>
+        </button>
+        <div class="foot-right">
           <button class="text-btn" onclick={() => (editingPerson = false)}>Cancel</button>
-          <button class="solid-btn" onclick={savePersonEdits}>Save</button>
+          <button class="solid-btn" onclick={savePersonEdits} disabled={!formName.trim()}>Save</button>
         </div>
-      {:else}
-        <div class="meta-head">
-          <div class="mono-label">PROFILE</div>
-          <button class="ghost-btn-sm" onclick={beginEditPerson}>Edit</button>
-        </div>
-        <div class="meta-block">
-          <div class="mono-label">BIO</div>
-          <div class="bio">{person.bio || "No bio yet."}</div>
-        </div>
-        <div class="meta-block">
-          <div class="mono-label">LINKED TASKS</div>
-          {#each linkedTasks as task}
-            <div class="ltask">
-              <span class="ldot"></span>
-              <div>
-                <div class="lt-title">{task.title}</div>
-                <div class="lt-due">{task.due || "No due date"} · {task.priority}</div>
-              </div>
-            </div>
-          {:else}
-            <div class="bio">No linked tasks.</div>
-          {/each}
-        </div>
-      {/if}
-    </aside>
+      </div>
+    </div>
   </div>
 {/if}
 
@@ -404,7 +540,7 @@
 
       <div class="modal-body">
         <div class="modal-layout">
-          <div class="field">
+          <div class="field note-pane">
             <span>NOTES</span>
             <div class="toolbar">
               <button class="tool-btn" onclick={() => runEditor("bold")}><strong>B</strong></button>
@@ -416,10 +552,12 @@
               <button class="tool-btn" onclick={() => formatBlock("P")}>¶</button>
               <div class="tool-sep"></div>
               <button class="tool-btn" onclick={() => runEditor("insertUnorderedList")}>• List</button>
-              <button class="tool-btn" onclick={() => formatBlock("BLOCKQUOTE")}>" Quote</button>
               <div class="tool-sep"></div>
-              <div class="tool-color-wrap" title="Text color">
-                <span class="tool-color-label">A</span>
+              <div class="tool-color-wrap" title="Font color">
+                <span class="tool-color-meta">
+                  <span class="tool-color-label">A</span>
+                  <span class="tool-color-copy">Font color</span>
+                </span>
                 <input
                   bind:this={colorInput}
                   class="tool-color-input"
@@ -428,7 +566,6 @@
                   oninput={(e) => { editorElement?.focus(); document.execCommand("foreColor", false, e.currentTarget.value); syncStateFromEditor(); }}
                 />
               </div>
-              <button class="tool-btn" onclick={chooseImage}>⌅ Image</button>
             </div>
             <div
               class="rich-editor"
@@ -436,13 +573,12 @@
               bind:this={editorElement}
               oninput={syncStateFromEditor}
             ></div>
-            <input bind:this={imageInput} class="hidden-input" type="file" accept="image/*" multiple onchange={insertImages} />
           </div>
 
           <aside class="actions-pane">
             <div class="actions-pane-head">
               <span class="mono-label">ACTION ITEMS</span>
-              <span class="actions-helper">Always visible while you write</span>
+              <button class="ghost-btn-sm action-pane-add-btn" onclick={addActionItem}>Add</button>
             </div>
             <div class="action-entry">
               <input
@@ -455,9 +591,7 @@
                   }
                 }}
               />
-              <button class="solid-btn-sm" onclick={addActionItem}>Add</button>
             </div>
-            <div class="actions-copy">Add one follow-up at a time. These show up as checkboxes on the note.</div>
             <div class="action-draft-list">
               {#each noteActions as action}
                 <div class="draft-action">
@@ -474,16 +608,25 @@
 
       <div class="modal-foot">
         {#if conversationMode === "edit" && conversationOriginal}
-          <button class="del-ghost" onclick={() => removeConversation(conversationOriginal)}>Delete</button>
+          <button class="del-ghost" onclick={() => requestRemoveConversation(conversationOriginal)}>Delete</button>
         {/if}
         <div class="foot-right">
           <button class="text-btn" onclick={closeConversationModal}>Cancel</button>
-          <button class="solid-btn" onclick={saveConversation}>Save note</button>
+          <button class="solid-btn" onclick={saveConversation} disabled={!noteTitle.trim()}>Save note</button>
         </div>
       </div>
     </div>
   </div>
 {/if}
+
+<ConfirmModal
+  open={!!confirmState}
+  title={confirmState?.title}
+  message={confirmState?.message}
+  confirmLabel={confirmState?.confirmLabel}
+  onCancel={closeConfirmModal}
+  onConfirm={confirmAction}
+/>
 
 <style>
   .topbar {
@@ -563,6 +706,15 @@
     display: flex;
     gap: 16px;
     margin-bottom: 24px;
+    scroll-margin-top: 84px;
+    transition: background 0.22s ease, box-shadow 0.22s ease;
+    border-radius: 14px;
+  }
+  .entry--highlighted {
+    background: rgba(187, 160, 121, 0.12);
+    box-shadow: 0 0 0 1px rgba(180, 141, 78, 0.22);
+    padding: 12px;
+    margin-inline: -12px;
   }
   .rail {
     width: 12px;
@@ -690,7 +842,13 @@
     border-radius: 14px;
     padding: 40px;
     text-align: center;
-    max-width: 520px;
+    width: 100%;
+    max-width: none;
+  }
+  .empty-cta {
+    width: auto;
+    min-width: 220px;
+    justify-content: center;
   }
   .empty-title {
     font-family: var(--serif);
@@ -738,6 +896,7 @@
     color: var(--faint);
   }
   .field input,
+  .field select,
   .field textarea {
     width: 100%;
     border: 1px solid var(--line-2);
@@ -750,9 +909,23 @@
     resize: vertical;
   }
   .field input:focus,
+  .field select:focus,
   .field textarea:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  .field select {
+    appearance: none;
+    cursor: pointer;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position:
+      calc(100% - 18px) calc(50% - 2px),
+      calc(100% - 12px) calc(50% - 2px);
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    padding-right: 34px;
   }
   .color-picker {
     display: flex;
@@ -763,11 +936,11 @@
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
+    max-width: 300px;
   }
-  .color-swatch,
-  .color-custom {
-    width: 100%;
-    aspect-ratio: 1;
+  .color-swatch {
+    width: 52px;
+    height: 52px;
     border-radius: 14px;
     border: 1px solid #dfd7ca;
     background: #f5efe5;
@@ -775,8 +948,7 @@
     cursor: pointer;
     padding: 0;
   }
-  .color-swatch::before,
-  .color-custom-face {
+  .color-swatch::before {
     content: "";
     position: absolute;
     inset: 7px;
@@ -788,23 +960,39 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(180, 141, 78, 0.14);
   }
-  .color-custom {
-    overflow: hidden;
-  }
-  .color-wheel {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+  .custom-color-btn {
     border: none;
-    border-radius: inherit;
-    padding: 0;
-    cursor: pointer;
-    opacity: 0;
     background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 0 6px;
+    align-self: center;
+    white-space: nowrap;
   }
-  .color-wheel::-webkit-color-swatch-wrapper { padding: 0; border-radius: inherit; }
-  .color-wheel::-webkit-color-swatch { border: none; border-radius: inherit; }
+  .custom-color-btn.selected {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 0.28em;
+  }
+  .hidden-color-input {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .color-preview-copy {
+    margin-top: 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    text-transform: uppercase;
+  }
   .color-preview-card {
     display: flex;
     align-items: center;
@@ -829,15 +1017,13 @@
     font-size: 13px;
     font-family: var(--sans);
   }
-  .color-preview-value {
+  .color-preview-copy {
     margin-top: 2px;
-    font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.08em;
     color: var(--faint);
     text-transform: uppercase;
   }
-  .meta-actions,
   .toolbar,
   .modal-foot,
   .foot-right {
@@ -888,6 +1074,18 @@
   }
   .note-modal {
     width: min(860px, calc(100vw - 48px));
+    height: min(760px, calc(100vh - 48px));
+  }
+  .profile-modal {
+    width: min(560px, calc(100vw - 48px));
+    max-height: calc(100vh - 48px);
+  }
+  .profile-modal-body {
+    padding: 18px 28px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
   }
   .modal-top {
     padding: 28px 28px 16px;
@@ -899,7 +1097,7 @@
   }
   .modal-body {
     flex: 1;
-    overflow-y: auto;
+    overflow: hidden;
     min-height: 0;
     padding: 16px 28px;
   }
@@ -908,6 +1106,12 @@
     grid-template-columns: minmax(0, 1fr) 260px;
     gap: 20px;
     align-items: start;
+    height: 100%;
+    min-height: 0;
+  }
+  .note-pane {
+    min-height: 0;
+    height: 100%;
   }
   .modal-head {
     font-family: var(--serif);
@@ -941,17 +1145,30 @@
     border: 1px solid var(--line-2);
     background: var(--card);
     border-radius: 8px;
-    padding: 5px 10px;
+    padding: 5px 12px;
     cursor: pointer;
-    gap: 4px;
+    gap: 8px;
+    min-width: 132px;
   }
   .tool-color-wrap:hover { background: var(--panel-2); }
-  .tool-color-label {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--ink);
+  .tool-color-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     pointer-events: none;
+  }
+  .tool-color-label {
+    font-family: var(--serif);
+    font-size: 18px;
+    color: var(--ink);
     line-height: 1;
+  }
+  .tool-color-copy {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
   .tool-color-input {
     position: absolute;
@@ -963,8 +1180,15 @@
     border: none;
     padding: 0;
   }
+  .solid-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    filter: none;
+  }
   .rich-editor {
-    min-height: 280px;
+    min-height: 0;
+    flex: 1;
+    height: 100%;
     border: 1px solid var(--line-2);
     border-radius: 10px;
     padding: 14px;
@@ -975,8 +1199,8 @@
     overflow-y: auto;
   }
   .actions-pane {
-    position: sticky;
-    top: 0;
+    min-height: 0;
+    height: 100%;
     border: 1px solid var(--line);
     border-radius: 14px;
     background: #fbf7f0;
@@ -987,11 +1211,10 @@
   }
   .actions-pane-head {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
-  .actions-helper,
-  .actions-copy,
   .actions-empty {
     font-size: 12px;
     color: var(--muted);
@@ -999,7 +1222,6 @@
   }
   .action-entry {
     display: flex;
-    gap: 8px;
   }
   .action-entry input {
     flex: 1;
@@ -1014,10 +1236,19 @@
     outline: none;
     border-color: var(--accent);
   }
+  .action-pane-add-btn {
+    flex: none;
+    white-space: nowrap;
+    padding-inline: 12px;
+  }
   .action-draft-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px;
   }
   .draft-action {
     display: flex;
@@ -1031,6 +1262,18 @@
     color: var(--ink-2);
     font-size: 13px;
     line-height: 1.4;
+  }
+  .draft-action > span:first-child {
+    min-width: 0;
+    flex: 1;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .note-pane,
+  .actions-pane {
+    display: flex;
+    flex-direction: column;
   }
   .chip-remove {
     border: none;
@@ -1054,9 +1297,6 @@
     border-radius: 12px;
     display: block;
     margin: 12px 0;
-  }
-  .hidden-input {
-    display: none;
   }
   .modal-foot {
     justify-content: space-between;
@@ -1106,6 +1346,41 @@
     }
     .actions-pane {
       position: static;
+    }
+  }
+  @media (max-width: 760px) {
+    .topbar,
+    .hero,
+    .notes,
+    .meta {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+    .topbar {
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .row {
+      align-items: flex-start;
+    }
+    .name {
+      font-size: 24px;
+    }
+    .content {
+      max-width: none;
+    }
+    .date-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .profile-modal-body {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+    .modal-foot {
+      padding-left: 20px;
+      padding-right: 20px;
     }
   }
 </style>

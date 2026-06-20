@@ -1,5 +1,6 @@
 <script>
-  import { tasks, people, priorityColor, daysSince, dayLabel, initials } from "../stores.js";
+  import ConfirmModal from "./ConfirmModal.svelte";
+  import { appAction, clearAppAction, tasks, people, priorityColor, daysSince, dayLabel, initials } from "../stores.js";
   import { saveTasks } from "../api.js";
 
   const columns = [
@@ -18,14 +19,23 @@
   let due      = $state("");
   let priority = $state("med");
   let peopleInput = $state("");  // autocomplete input for adding people
+  let peoplePickerOpen = $state(false);
 
   // Inline quick-add in the "todo" column
   let quickTitle  = $state("");
   let quickAdding = $state(false);
+  let datePickerOpen = $state(false);
+  let visibleMonth = $state(startOfMonthIso(todayIso()));
 
   // Drag state
   let dragIndex = $state(-1);
+  let dragMoved = $state(false);
+  let activeDropColumn = $state("");
+  let activeDropIndex = $state(-1);
   let showArchived = $state(false);
+  let confirmState = $state(null);
+  let handledActionToken = $state(0);
+  let pointerDrag = $state(null);
 
   // ── Derived ────────────────────────────────────────────────────────────
   const todoTasks  = $derived($tasks.map((t, i) => ({ task: t, index: i })).filter(({ task }) => task.column === "todo"));
@@ -75,9 +85,75 @@
   const peopleOptions = $derived(
     $people.map((p) => p.name).filter((n) => !taskPeople.includes(n))
   );
+  const filteredPeopleOptions = $derived(
+    peopleOptions.filter((name) =>
+      !peopleInput.trim() || name.toLowerCase().includes(peopleInput.trim().toLowerCase())
+    )
+  );
+  const calendarDays = $derived(buildCalendarDays(visibleMonth));
 
   function personFor(name) {
     return name ? $people.find((p) => p.name === name) : null;
+  }
+
+  function todayIso() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function parseIsoDate(iso) {
+    if (!iso) return null;
+    const [year, month, day] = iso.split("-").map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+  }
+
+  function formatIsoDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function startOfMonthIso(iso) {
+    const date = parseIsoDate(iso) || new Date();
+    return formatIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
+  }
+
+  function monthLabel(iso) {
+    const date = parseIsoDate(iso) || new Date();
+    return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }
+
+  function dueDisplay(iso) {
+    if (!iso) return "No due date";
+    const date = parseIsoDate(iso);
+    if (!date) return iso;
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  function shiftMonth(iso, delta) {
+    const date = parseIsoDate(iso) || new Date();
+    return formatIsoDate(new Date(date.getFullYear(), date.getMonth() + delta, 1));
+  }
+
+  function buildCalendarDays(monthIso) {
+    const monthStart = parseIsoDate(monthIso) || new Date();
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(1 - monthStart.getDay());
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      return {
+        iso: formatIsoDate(date),
+        label: String(date.getDate()),
+        inMonth: date.getMonth() === monthStart.getMonth(),
+      };
+    });
   }
 
   function taskPeopleList(task) {
@@ -108,6 +184,9 @@
   function openNew() {
     creating = true; editingIndex = -1; modalOpen = true;
     title = ""; taskPeople = []; due = ""; priority = "med"; peopleInput = "";
+    peoplePickerOpen = false;
+    datePickerOpen = false;
+    visibleMonth = startOfMonthIso(todayIso());
   }
 
   function openEdit(index) {
@@ -119,10 +198,15 @@
     due = task.due || "";
     priority = task.priority || "med";
     peopleInput = "";
+    peoplePickerOpen = false;
+    datePickerOpen = false;
+    visibleMonth = startOfMonthIso(task.due || todayIso());
   }
 
   function closeModal() {
     modalOpen = false; creating = false; editingIndex = -1;
+    peoplePickerOpen = false;
+    datePickerOpen = false;
   }
 
   function addPersonToTask(name) {
@@ -130,10 +214,35 @@
       taskPeople = [...taskPeople, name];
     }
     peopleInput = "";
+    peoplePickerOpen = false;
   }
 
   function removePersonFromTask(name) {
     taskPeople = taskPeople.filter((n) => n !== name);
+  }
+
+  function toggleDatePicker() {
+    visibleMonth = startOfMonthIso(due || todayIso());
+    datePickerOpen = !datePickerOpen;
+  }
+
+  function selectDueDate(iso) {
+    due = iso;
+    visibleMonth = startOfMonthIso(iso);
+    datePickerOpen = false;
+  }
+
+  function clearDueDate() {
+    due = "";
+    datePickerOpen = false;
+  }
+
+  function commitPeopleInput() {
+    const value = peopleInput.trim();
+    if (!value) return;
+    const exact = peopleOptions.find((name) => name.toLowerCase() === value.toLowerCase());
+    const selected = exact || filteredPeopleOptions[0];
+    if (selected) addPersonToTask(selected);
   }
 
   // ── Save/delete ────────────────────────────────────────────────────────
@@ -165,9 +274,21 @@
   }
 
   async function deleteTask(index) {
-    if (!confirm("Delete this task? This cannot be undone.")) return;
     await persist($tasks.filter((_, i) => i !== index));
     closeModal();
+  }
+
+  function requestDeleteTask(index) {
+    const task = $tasks[index];
+    if (!task) return;
+    confirmState = {
+      title: "Delete task?",
+      message: `Delete "${task.title}" permanently? This cannot be undone.`,
+      confirmLabel: "Delete task",
+      action: async () => {
+        await deleteTask(index);
+      },
+    };
   }
 
   function applyColumn(task, column) {
@@ -177,34 +298,54 @@
     return { ...task, column, done: false, completed_at: "", archived: false };
   }
 
-  // ── Drag/drop ──────────────────────────────────────────────────────────
-  function onDragStart(event, index) {
-    dragIndex = index;
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", String(index));
+  function setActiveDropColumn(column) {
+    activeDropColumn = column;
+  }
+
+  function clearActiveDropColumn() {
+    activeDropColumn = "";
+    activeDropIndex = -1;
+  }
+
+  function taskColumnOrder(column) {
+    return columns.findIndex((item) => item.key === column);
+  }
+
+  function reorderTasks(list, fromIndex, column, targetIndex = -1) {
+    const task = list[fromIndex];
+    if (!task) return list;
+
+    const moved = applyColumn(task, column);
+    if (targetIndex === fromIndex && task.column === column) {
+      return list;
     }
+
+    const next = list.filter((_, i) => i !== fromIndex);
+
+    if (targetIndex >= 0) {
+      const insertAt = targetIndex > fromIndex ? targetIndex - 1 : targetIndex;
+      next.splice(insertAt, 0, moved);
+      return next;
+    }
+
+    const lastInColumn = next.reduce((found, item, idx) => (item.column === column ? idx : found), -1);
+    let insertAt = next.length;
+
+    if (lastInColumn >= 0) {
+      insertAt = lastInColumn + 1;
+    } else {
+      const currentOrder = taskColumnOrder(column);
+      const firstLater = next.findIndex((item) => taskColumnOrder(item.column) > currentOrder);
+      insertAt = firstLater >= 0 ? firstLater : next.length;
+    }
+
+    next.splice(insertAt, 0, moved);
+    return next;
   }
 
-  function onDragOver(event) {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-  }
-
-  async function onDrop(event, column) {
-    event.preventDefault();
-    event.stopPropagation();
-    const raw = event.dataTransfer?.getData("text/plain");
-    const index = raw !== undefined && raw !== "" ? Number(raw) : dragIndex;
-    dragIndex = -1;
+  async function moveTaskByIndex(index, column, targetIndex = -1) {
     if (!Number.isInteger(index) || index < 0 || !$tasks[index]) return;
-    const next = $tasks.map((t, i) => i === index ? applyColumn(t, column) : t);
-    await persist(next);
-  }
-
-  async function moveTaskByIndex(index, column) {
-    if (!Number.isInteger(index) || index < 0 || !$tasks[index]) return;
-    await persist($tasks.map((t, i) => i === index ? applyColumn(t, column) : t));
+    await persist(reorderTasks($tasks, index, column, targetIndex));
   }
 
   async function archiveGroup(date) {
@@ -212,6 +353,121 @@
       t.column === "done" && t.completed_at === date ? { ...t, archived: true } : t
     ));
   }
+
+  function requestArchiveGroup(date) {
+    const group = doneGroups().find((entry) => entry.key === date);
+    if (!group) return;
+    confirmState = {
+      title: "Archive completed tasks?",
+      message: `Move ${group.items.length} completed ${group.items.length === 1 ? "task" : "tasks"} from ${group.label} into the archive?`,
+      confirmLabel: "Archive",
+      action: async () => {
+        await archiveGroup(date);
+      },
+    };
+  }
+
+  function closeConfirmModal() {
+    confirmState = null;
+  }
+
+  async function confirmAction() {
+    const action = confirmState?.action;
+    confirmState = null;
+    if (action) await action();
+  }
+
+  function maybeOpenEdit(index) {
+    if (dragMoved) {
+      dragMoved = false;
+      return;
+    }
+    openEdit(index);
+  }
+
+  function updateDropColumnAtPoint(clientX, clientY) {
+    const element = document.elementFromPoint(clientX, clientY);
+    const zone = element?.closest("[data-drop-column]");
+    const card = element?.closest("[data-task-index]");
+    activeDropColumn = zone?.dataset.dropColumn || "";
+    activeDropIndex = card ? Number(card.dataset.taskIndex) : -1;
+    return activeDropColumn;
+  }
+
+  function onPointerMove(event) {
+    if (!pointerDrag) return;
+    const moved =
+      Math.abs(event.clientX - pointerDrag.startX) > 6 ||
+      Math.abs(event.clientY - pointerDrag.startY) > 6;
+
+    pointerDrag = {
+      ...pointerDrag,
+      x: event.clientX,
+      y: event.clientY,
+      active: pointerDrag.active || moved,
+    };
+
+    if (pointerDrag.active || moved) {
+      dragMoved = true;
+      updateDropColumnAtPoint(event.clientX, event.clientY);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
+    }
+  }
+
+  async function onPointerUp(event) {
+    const drag = pointerDrag;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+
+    pointerDrag = null;
+    dragIndex = -1;
+
+    if (!drag?.active) {
+      clearActiveDropColumn();
+      return;
+    }
+
+    const column = updateDropColumnAtPoint(event.clientX, event.clientY);
+    const targetIndex = activeDropIndex;
+    clearActiveDropColumn();
+    if (column) {
+      await moveTaskByIndex(drag.index, column, targetIndex);
+    }
+  }
+
+  function beginPointerDrag(event, index) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const task = $tasks[index];
+    if (!task) return;
+
+    dragIndex = index;
+    dragMoved = false;
+    pointerDrag = {
+      index,
+      title: task.title,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
+
+  $effect(() => {
+    const action = $appAction;
+    if (!action?.token || action.token === handledActionToken) return;
+    if (action.type !== "new-task") return;
+    handledActionToken = action.token;
+    openNew();
+    clearAppAction();
+  });
 
 </script>
 
@@ -255,22 +511,20 @@
 
       <div
         class="dropzone"
+        class:dropzone--active={activeDropColumn === "todo"}
+        data-drop-column="todo"
         role="group"
-        ondragover={onDragOver}
-        ondrop={(e) => onDrop(e, "todo")}
       >
         {#each todoTasks as { task, index } (`todo-${index}`)}
           <div
             class="card"
+            class:card--drop-target={activeDropIndex === index && dragIndex !== index}
             role="button"
             tabindex="0"
-            draggable="true"
-            ondragstart={(e) => onDragStart(e, index)}
-            ondragend={() => (dragIndex = -1)}
-            ondragover={onDragOver}
-            ondrop={(e) => onDrop(e, "todo")}
-            onclick={() => openEdit(index)}
-            onkeydown={(e) => e.key === "Enter" && openEdit(index)}
+            data-task-index={index}
+            onpointerdown={(event) => beginPointerDrag(event, index)}
+            onclick={() => maybeOpenEdit(index)}
+            onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
           >
             <span class="card-bar" style="background:{priorityColor(task.priority)}"></span>
             <span class="card-title">{task.title}</span>
@@ -311,22 +565,20 @@
 
       <div
         class="dropzone"
+        class:dropzone--active={activeDropColumn === "doing"}
+        data-drop-column="doing"
         role="group"
-        ondragover={onDragOver}
-        ondrop={(e) => onDrop(e, "doing")}
       >
         {#each doingTasks as { task, index } (`doing-${index}`)}
           <div
             class="card card--doing"
+            class:card--drop-target={activeDropIndex === index && dragIndex !== index}
             role="button"
             tabindex="0"
-            draggable="true"
-            ondragstart={(e) => onDragStart(e, index)}
-            ondragend={() => (dragIndex = -1)}
-            ondragover={onDragOver}
-            ondrop={(e) => onDrop(e, "doing")}
-            onclick={() => openEdit(index)}
-            onkeydown={(e) => e.key === "Enter" && openEdit(index)}
+            data-task-index={index}
+            onpointerdown={(event) => beginPointerDrag(event, index)}
+            onclick={() => maybeOpenEdit(index)}
+            onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
           >
             <span class="card-bar" style="background:{priorityColor(task.priority)}"></span>
             <span class="card-title">{task.title}</span>
@@ -367,28 +619,26 @@
 
       <div
         class="dropzone"
+        class:dropzone--active={activeDropColumn === "done"}
+        data-drop-column="done"
         role="group"
-        ondragover={onDragOver}
-        ondrop={(e) => onDrop(e, "done")}
       >
         {#each doneGroups() as group}
           <div class="done-group">
             <div class="done-head">
               <span class="done-date">{group.label}</span>
-              <button class="archive-btn" onclick={() => archiveGroup(group.key)}>Archive</button>
+              <button class="archive-btn" onclick={() => requestArchiveGroup(group.key)}>Archive</button>
             </div>
             {#each group.items as { task, index } (`done-${index}`)}
               <div
                 class="card card--done"
+                class:card--drop-target={activeDropIndex === index && dragIndex !== index}
                 role="button"
                 tabindex="0"
-                draggable="true"
-                ondragstart={(e) => onDragStart(e, index)}
-                ondragend={() => (dragIndex = -1)}
-                ondragover={onDragOver}
-                ondrop={(e) => onDrop(e, "done")}
-                onclick={() => openEdit(index)}
-                onkeydown={(e) => e.key === "Enter" && openEdit(index)}
+                data-task-index={index}
+                onpointerdown={(event) => beginPointerDrag(event, index)}
+                onclick={() => maybeOpenEdit(index)}
+                onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
               >
                 <span class="check-icon">✓</span>
                 <div class="card-done-body">
@@ -428,15 +678,13 @@
                     {#each group.items as { task, index } (`archived-${index}`)}
                       <div
                         class="card card--done card--archived"
+                        class:card--drop-target={activeDropIndex === index && dragIndex !== index}
                         role="button"
                         tabindex="0"
-                        draggable="true"
-                        ondragstart={(e) => onDragStart(e, index)}
-                        ondragend={() => (dragIndex = -1)}
-                        ondragover={onDragOver}
-                        ondrop={(e) => onDrop(e, "done")}
-                        onclick={() => openEdit(index)}
-                        onkeydown={(e) => e.key === "Enter" && openEdit(index)}
+                        data-task-index={index}
+                        onpointerdown={(event) => beginPointerDrag(event, index)}
+                        onclick={() => maybeOpenEdit(index)}
+                        onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
                       >
                         <span class="check-icon">✓</span>
                         <div class="card-done-body">
@@ -485,28 +733,80 @@
           {/each}
         </div>
         <div class="people-add-row">
-          <input
-            class="people-input"
-            list="task-people-list"
-            bind:value={peopleInput}
-            placeholder="Add person…"
-            onchange={(e) => { addPersonToTask(e.currentTarget.value.trim()); e.currentTarget.value = ""; }}
-            onkeydown={(e) => {
-              if (e.key === "Enter") { addPersonToTask(peopleInput.trim()); e.preventDefault(); }
-            }}
-          />
-          <datalist id="task-people-list">
-            {#each peopleOptions as name}
-              <option value={name}></option>
-            {/each}
-          </datalist>
+          <div class="people-picker">
+            <input
+              class="people-input"
+              bind:value={peopleInput}
+              placeholder="Add person…"
+              onfocus={() => (peoplePickerOpen = true)}
+              oninput={() => (peoplePickerOpen = true)}
+              onblur={() => window.setTimeout(() => (peoplePickerOpen = false), 120)}
+              onkeydown={(e) => {
+                if (e.key === "Enter") {
+                  commitPeopleInput();
+                  e.preventDefault();
+                }
+                if (e.key === "Escape") {
+                  peoplePickerOpen = false;
+                }
+              }}
+            />
+            {#if peoplePickerOpen && filteredPeopleOptions.length}
+              <div class="people-suggestions">
+                {#each filteredPeopleOptions as name}
+                  <button class="people-suggestion" onclick={() => addPersonToTask(name)}>
+                    {#if personFor(name)}
+                      <span class="people-suggestion-av" style="background:{personFor(name).color}">{initials(personFor(name).name)}</span>
+                    {/if}
+                    <span class="people-suggestion-name">{name}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
       </div>
 
-      <label class="field">
+      <div class="field">
         <span>DUE DATE</span>
-        <input type="date" bind:value={due} />
-      </label>
+        <div class="date-picker">
+          <button class="date-input-wrap" onclick={toggleDatePicker} aria-expanded={datePickerOpen}>
+            <span class="date-input-icon" aria-hidden="true">◷</span>
+            <span class:date-input-empty={!due} class="date-input-label">{dueDisplay(due)}</span>
+          </button>
+          {#if datePickerOpen}
+            <div class="date-popover">
+              <div class="date-popover-head">
+                <button class="date-nav-btn" onclick={() => (visibleMonth = shiftMonth(visibleMonth, -1))} aria-label="Previous month">‹</button>
+                <div class="date-month-label">{monthLabel(visibleMonth)}</div>
+                <button class="date-nav-btn" onclick={() => (visibleMonth = shiftMonth(visibleMonth, 1))} aria-label="Next month">›</button>
+              </div>
+              <div class="date-weekdays">
+                {#each ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as weekday}
+                  <span>{weekday}</span>
+                {/each}
+              </div>
+              <div class="date-grid">
+                {#each calendarDays as day}
+                  <button
+                    class="date-day"
+                    class:date-day--muted={!day.inMonth}
+                    class:date-day--selected={day.iso === due}
+                    class:date-day--today={day.iso === todayIso()}
+                    onclick={() => selectDueDate(day.iso)}
+                  >
+                    {day.label}
+                  </button>
+                {/each}
+              </div>
+              <div class="date-popover-actions">
+                <button class="text-btn-sm" onclick={clearDueDate}>Clear</button>
+                <button class="solid-btn-sm" onclick={() => selectDueDate(todayIso())}>Today</button>
+              </div>
+            </div>
+          {/if}
+        </div>
+      </div>
 
       <div class="field">
         <span>PRIORITY</span>
@@ -540,7 +840,7 @@
 
       <div class="modal-foot">
         {#if !creating && editingIndex >= 0}
-          <button class="icon-btn icon-btn--danger" onclick={() => deleteTask(editingIndex)} title="Delete task" aria-label="Delete task">
+          <button class="icon-btn icon-btn--danger" onclick={() => requestDeleteTask(editingIndex)} title="Delete task" aria-label="Delete task">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v7h-2v-7Zm4 0h2v7h-2v-7ZM7 10h2v7H7v-7Zm-1 10h12l1-12H5l1 12Z" fill="currentColor"></path>
             </svg>
@@ -548,12 +848,41 @@
         {/if}
         <div class="foot-right">
           <button class="text-btn" onclick={closeModal}>Cancel</button>
-          <button class="solid-btn" onclick={saveEditor}>Save</button>
+          <button class="solid-btn" onclick={saveEditor} disabled={!title.trim()}>Save</button>
         </div>
       </div>
     </div>
   </div>
 {/if}
+
+{#if pointerDrag?.active}
+  <div
+    class="drag-ghost"
+    class:drag-ghost--done={$tasks[pointerDrag.index]?.column === "done"}
+    style={`left:${pointerDrag.x + 14}px;top:${pointerDrag.y + 14}px;`}
+  >
+    {#if $tasks[pointerDrag.index]?.column === "done"}
+      <span class="drag-ghost-check">✓</span>
+    {:else}
+      <span class="drag-ghost-bar" style={`background:${priorityColor($tasks[pointerDrag.index]?.priority)}`}></span>
+    {/if}
+    <div class="drag-ghost-body">
+      <div class="drag-ghost-title">{pointerDrag.title}</div>
+      {#if $tasks[pointerDrag.index]?.due}
+        <div class="drag-ghost-meta">{$tasks[pointerDrag.index].due}</div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+<ConfirmModal
+  open={!!confirmState}
+  title={confirmState?.title}
+  message={confirmState?.message}
+  confirmLabel={confirmState?.confirmLabel}
+  onCancel={closeConfirmModal}
+  onConfirm={confirmAction}
+/>
 
 <style>
   /* ── Layout ── */
@@ -679,6 +1008,11 @@
     flex: 1;
     overflow-y: auto;
     padding: 10px 10px 20px;
+    transition: background 0.14s ease, box-shadow 0.14s ease;
+  }
+  .dropzone--active {
+    background: linear-gradient(180deg, rgba(187, 160, 121, 0.12), rgba(187, 160, 121, 0.03));
+    box-shadow: inset 0 0 0 1px rgba(180, 141, 78, 0.24);
   }
 
   .col-empty {
@@ -711,7 +1045,60 @@
     box-shadow: 0 3px 12px rgba(60, 50, 30, 0.1);
     transform: translateY(-1px);
   }
+  .card--drop-target {
+    box-shadow: inset 0 2px 0 0 var(--accent), 0 4px 14px rgba(60, 50, 30, 0.1);
+  }
   .card:active { cursor: grabbing; }
+  .drag-ghost {
+    position: fixed;
+    z-index: 160;
+    max-width: 240px;
+    pointer-events: none;
+    background: rgba(252, 249, 243, 0.96);
+    border: 1px solid #d9cfbe;
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(50, 39, 20, 0.14);
+    padding: 10px 12px;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.35;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .drag-ghost--done {
+    background: rgba(246, 241, 232, 0.97);
+  }
+  .drag-ghost-bar {
+    width: 4px;
+    min-height: 34px;
+    border-radius: 999px;
+    flex: none;
+  }
+  .drag-ghost-check {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    flex: none;
+  }
+  .drag-ghost-body {
+    min-width: 0;
+  }
+  .drag-ghost-title {
+    font-weight: 500;
+  }
+  .drag-ghost-meta {
+    margin-top: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--muted-2);
+  }
   .card--doing { background: #fffefb; }
   .card--done {
     flex-direction: row;
@@ -859,6 +1246,8 @@
     background: rgba(44, 42, 38, 0.45);
     display: flex; align-items: center; justify-content: center;
     z-index: 120;
+    overflow-y: auto;
+    padding: 24px;
   }
   .modal {
     background: var(--paper);
@@ -867,7 +1256,7 @@
     width: 460px;
     max-width: calc(100vw - 48px);
     max-height: calc(100vh - 48px);
-    overflow-y: auto;
+    overflow: visible;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -898,9 +1287,133 @@
   .field > input:focus {
     outline: none; border-color: var(--accent);
   }
-  /* date input styling */
-  .field > input[type="date"] {
-    color-scheme: light;
+  .date-picker {
+    position: relative;
+  }
+  .date-input-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    padding: 0 14px;
+    min-height: 50px;
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+  }
+  .date-input-wrap:hover,
+  .date-input-wrap[aria-expanded="true"] {
+    background: #f7f2ea;
+  }
+  .date-input-wrap:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(180, 141, 78, 0.12);
+  }
+  .date-input-icon {
+    color: var(--muted-2);
+    font-size: 14px;
+    line-height: 1;
+    flex: none;
+  }
+  .date-input-label {
+    flex: 1;
+    font-size: 15px;
+    font-family: var(--serif);
+    color: var(--ink);
+  }
+  .date-input-empty {
+    color: var(--faint);
+  }
+  .date-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 150;
+    width: min(264px, calc(100vw - 96px));
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--paper);
+    box-shadow: 0 18px 44px rgba(44, 42, 38, 0.18);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .date-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .date-nav-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line-2);
+    border-radius: 9px;
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+  }
+  .date-nav-btn:hover {
+    background: #f2ebdf;
+  }
+  .date-month-label {
+    font-family: var(--serif);
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .date-weekdays,
+  .date-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .date-weekdays span {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .date-day {
+    aspect-ratio: 1;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .date-day:hover {
+    background: #f2ebdf;
+  }
+  .date-day--muted {
+    color: #b0a89b;
+  }
+  .date-day--today {
+    border-color: #d9cfbe;
+  }
+  .date-day--selected {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .date-popover-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .solid-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    filter: none;
   }
 
   /* People chips */
@@ -934,10 +1447,16 @@
   }
   .chip-remove:hover { color: var(--over); }
   .people-add-row {
-    display: flex; align-items: center; gap: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .people-picker {
+    position: relative;
+    flex: 1;
   }
   .people-input {
-    flex: 1;
+    width: 100%;
     border: 1px solid var(--line-2);
     border-radius: 8px;
     padding: 8px 11px;
@@ -946,6 +1465,50 @@
     color: var(--ink);
   }
   .people-input:focus { outline: none; border-color: var(--accent); }
+  .people-suggestions {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 150;
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 18px 44px rgba(44, 42, 38, 0.16);
+    padding: 6px;
+  }
+  .people-suggestion {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    padding: 8px 10px;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+  }
+  .people-suggestion:hover {
+    background: #f3ede2;
+  }
+  .people-suggestion-av {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    flex: none;
+  }
+  .people-suggestion-name {
+    font-size: 13px;
+  }
 
   .priority-row, .move-row { display: flex; gap: 7px; flex-wrap: wrap; }
   .pri-btn {

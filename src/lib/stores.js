@@ -1,6 +1,6 @@
-import { writable, derived } from "svelte/store";
+import { writable } from "svelte/store";
 
-// "people" | "person" | "tasks" | "today"
+// "people" | "person" | "tasks" | "conversations" | "today" | "settings"
 export const screen = writable("people");
 // slug of the open person, or null
 export const selectedSlug = writable(null);
@@ -9,19 +9,22 @@ export const people = writable([]);
 export const tasks = writable([]);
 export const folders = writable([]);
 export const vaultPath = writable("");
+export const appAction = writable({ type: "", detail: null, token: 0 });
+export const conversationSearchQuery = writable("");
+export const conversationsViewQuery = writable("");
+export const conversationsViewPage = writable(1);
+export const targetConversation = writable(null);
 
-export const overdueCount = derived(people, ($p) =>
-  $p.filter((x) => x.status === "over").length
-);
+export function fireAppAction(type, detail = null) {
+  appAction.set({
+    type,
+    detail,
+    token: Date.now() + Math.random(),
+  });
+}
 
-const META = {
-  over: { label: "Overdue", color: "var(--over)", tint: "var(--over-tint)" },
-  due: { label: "Due soon", color: "var(--due)", tint: "var(--due-tint)" },
-  ok: { label: "On track", color: "var(--ok)", tint: "var(--ok-tint)" },
-};
-
-export function statusMeta(status) {
-  return META[status] || META.ok;
+export function clearAppAction() {
+  appAction.set({ type: "", detail: null, token: 0 });
 }
 
 const PRIORITY = {

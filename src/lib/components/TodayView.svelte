@@ -6,7 +6,12 @@
   });
 
   const dueToday = $derived($tasks.filter((t) => t.due === "Today" && t.column !== "done"));
-  const overdue = $derived($people.filter((p) => p.status === "over"));
+  const recentPeople = $derived(
+    [...$people]
+      .filter((p) => p.last_met)
+      .sort((a, b) => (a.last_met < b.last_met ? 1 : -1))
+      .slice(0, 5)
+  );
 
   function open(slug) {
     selectedSlug.set(slug);
@@ -16,7 +21,7 @@
 
 <header>
   <h1>Today</h1>
-  <p>{todayStr} · {dueToday.length} tasks due, {overdue.length} need a check-in</p>
+  <p>{todayStr} · {dueToday.length} tasks due, {recentPeople.length} recent 1:1s</p>
 </header>
 
 <div class="scroll body">
@@ -34,19 +39,19 @@
     {/each}
   </div>
 
-  <div class="mono-label" style="color:var(--over); margin-bottom:14px">NEEDS ATTENTION</div>
+  <div class="mono-label" style="color:var(--over); margin-bottom:14px">RECENT 1:1S</div>
   <div class="panel">
-    {#each overdue as p (p.slug)}
+    {#each recentPeople as p (p.slug)}
       <button class="prow" on:click={() => open(p.slug)}>
         <span class="avatar" style="background:{p.color}">{initials(p.name)}</span>
         <span class="who">
           <span class="pname">{p.name}</span>
           <span class="psub">Last 1:1 — {relative(p.last_met)}</span>
         </span>
-        <span class="schedule">Schedule</span>
+        <span class="schedule">Open</span>
       </button>
     {:else}
-      <div class="muted">Everyone is on cadence.</div>
+      <div class="muted">No recent 1:1s yet.</div>
     {/each}
   </div>
 </div>

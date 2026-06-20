@@ -1,5 +1,5 @@
 <script>
-  import { people, folders, screen, selectedSlug } from "../stores.js";
+  import { appAction, clearAppAction, people, folders, screen, selectedSlug } from "../stores.js";
   import { createPerson } from "../api.js";
   import PersonCard from "./PersonCard.svelte";
 
@@ -31,6 +31,8 @@
   let newRole = $state("");
   let newColor = $state("#6b7d9c");
   let addError = $state("");
+  let handledActionToken = $state(0);
+  let newColorInput = $state();
 
   function openAdd() {
     adding = true;
@@ -48,12 +50,28 @@
     const person = await createPerson({
       name: newName.trim(),
       role: newRole.trim(),
-      cadence_weeks: 2,
       color: newColor,
     });
     people.update((list) => [...list, person].sort((a, b) => a.name.localeCompare(b.name)));
     adding = false;
   }
+
+  function isPresetColor(color) {
+    return COLORS.includes(color);
+  }
+
+  function openCustomColorPicker() {
+    newColorInput?.click();
+  }
+
+  $effect(() => {
+    const action = $appAction;
+    if (!action?.token || action.token === handledActionToken) return;
+    if (action.type !== "new-person") return;
+    handledActionToken = action.token;
+    openAdd();
+    clearAppAction();
+  });
 </script>
 
 <header>
@@ -103,28 +121,33 @@
       </label>
       <label class="field">
         <span>COLOR</span>
-        <div class="color-picker">
-          <div class="color-swatch-grid">
-            {#each COLORS as color}
+          <div class="color-picker">
+            <div class="color-swatch-grid">
+              {#each COLORS as color}
               <button
                 type="button"
                 class="color-swatch"
                 class:selected={newColor === color}
                 style={`--swatch:${color}`}
                 onclick={() => (newColor = color)}
-                aria-label={`Select ${color}`}
-              ></button>
-            {/each}
-            <label class="color-custom" aria-label="Choose custom color">
-              <input type="color" bind:value={newColor} class="color-wheel" />
-              <span class="color-custom-face" style={`--swatch:${newColor}`}></span>
-            </label>
-          </div>
-          <div class="color-preview-card">
-            <span class="avatar-preview" style="background:{newColor}">{newName ? newName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '?'}</span>
-            <div>
+                  aria-label={`Select ${color}`}
+                ></button>
+              {/each}
+              <button
+                type="button"
+                class="custom-color-btn"
+                class:selected={!isPresetColor(newColor)}
+                onclick={openCustomColorPicker}
+              >
+                Custom
+              </button>
+            </div>
+            <input bind:this={newColorInput} class="hidden-color-input" type="color" bind:value={newColor} />
+            <div class="color-preview-card">
+              <span class="avatar-preview" style="background:{newColor}">{newName ? newName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '?'}</span>
+              <div>
               <div class="color-preview-name">{newName || "New person"}</div>
-              <div class="color-preview-value">{newColor}</div>
+              <div class="color-preview-copy">Avatar preview</div>
             </div>
           </div>
         </div>
@@ -134,7 +157,7 @@
 
       <div class="modal-foot">
         <button class="text-btn" onclick={() => (adding = false)}>Cancel</button>
-        <button class="solid-btn" onclick={submitAdd}>Add person</button>
+        <button class="solid-btn" onclick={submitAdd} disabled={!newName.trim()}>Add person</button>
       </div>
     </div>
   </div>
@@ -264,8 +287,7 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
   }
-  .color-swatch,
-  .color-custom {
+  .color-swatch {
     width: 100%;
     aspect-ratio: 1;
     border-radius: 14px;
@@ -275,8 +297,7 @@
     cursor: pointer;
     padding: 0;
   }
-  .color-swatch::before,
-  .color-custom-face {
+  .color-swatch::before {
     content: "";
     position: absolute;
     inset: 7px;
@@ -288,23 +309,39 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(180, 141, 78, 0.14);
   }
-  .color-custom {
-    overflow: hidden;
-  }
-  .color-wheel {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+  .custom-color-btn {
     border: none;
-    border-radius: inherit;
-    padding: 0;
-    cursor: pointer;
-    opacity: 0;
     background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 0 6px;
+    align-self: center;
+    white-space: nowrap;
   }
-  .color-wheel::-webkit-color-swatch-wrapper { padding: 0; border-radius: inherit; }
-  .color-wheel::-webkit-color-swatch { border: none; border-radius: inherit; }
+  .custom-color-btn.selected {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 0.28em;
+  }
+  .hidden-color-input {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .color-preview-copy {
+    margin-top: 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    text-transform: uppercase;
+  }
   .color-preview-card {
     display: flex;
     align-items: center;
@@ -329,14 +366,6 @@
     font-size: 13px;
     font-family: var(--sans);
   }
-  .color-preview-value {
-    margin-top: 2px;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--faint);
-    text-transform: uppercase;
-  }
   .error {
     font-size: 13px;
     color: var(--over);
@@ -345,5 +374,10 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+  }
+  .solid-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    filter: none;
   }
 </style>

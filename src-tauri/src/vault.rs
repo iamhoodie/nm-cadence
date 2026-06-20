@@ -75,28 +75,6 @@ pub fn parse_conversations(body: &str) -> Vec<Conversation> {
     out
 }
 
-/// Derive a cadence status from the last-met date and cadence interval.
-pub fn compute_status(last_met: &Option<String>, cadence_weeks: u32) -> String {
-    match last_met {
-        None => "due".to_string(),
-        Some(d) => match NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-            Ok(date) => {
-                let today = Local::now().date_naive();
-                let days = (today - date).num_days();
-                let cadence_days = (cadence_weeks as i64) * 7;
-                if days > cadence_days {
-                    "over".to_string()
-                } else if days >= cadence_days - 3 {
-                    "due".to_string()
-                } else {
-                    "ok".to_string()
-                }
-            }
-            Err(_) => "ok".to_string(),
-        },
-    }
-}
-
 fn slug_from_path(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -112,25 +90,17 @@ fn person_from_file(path: &Path) -> io::Result<Person> {
         name: slug_from_path(path),
         role: String::new(),
         bio: String::new(),
-        joined: String::new(),
-        cadence_weeks: 2,
         color: String::new(),
-        next_1on1: String::new(),
         group: String::new(),
     });
-    let status = compute_status(&last_met, fm.cadence_weeks);
     Ok(Person {
         slug: slug_from_path(path),
         name: fm.name,
         role: fm.role,
         bio: fm.bio,
-        joined: fm.joined,
-        cadence_weeks: fm.cadence_weeks,
         color: fm.color,
-        next_1on1: fm.next_1on1,
         group: fm.group,
         last_met,
-        status,
         conversations,
     })
 }
@@ -145,6 +115,10 @@ pub fn people_dir(vault: &Path) -> PathBuf {
 
 pub fn tasks_file(vault: &Path) -> PathBuf {
     vault.join("tasks.md")
+}
+
+pub fn legacy_settings_file(vault: &Path) -> PathBuf {
+    vault.join("settings.json")
 }
 
 pub fn list_people(vault: &Path) -> io::Result<Vec<Person>> {
@@ -230,6 +204,8 @@ fn parse_task_meta(line: &str) -> (String, Task) {
             due = v.to_string();
         } else if let Some(v) = tok.strip_prefix("@priority:") {
             priority = v.to_string();
+        } else if tok.starts_with("@done:") || tok.starts_with("@archived:") {
+            continue;
         } else {
             title_parts.push(tok);
         }
@@ -249,7 +225,7 @@ fn parse_task_meta(line: &str) -> (String, Task) {
     )
 }
 
-pub fn list_tasks(vault: &Path) -> io::Result<Vec<Task>> {
+pub fn list_tasks(vault: &Path, settings: &AppSettings) -> io::Result<Vec<Task>> {
     let path = tasks_file(vault);
     if !path.exists() {
         return Ok(Vec::new());
@@ -288,10 +264,12 @@ pub fn list_tasks(vault: &Path) -> io::Result<Vec<Task>> {
         task.done = done;
         tasks.push(task);
     }
+    let tasks = apply_auto_archive(tasks, &settings);
+    write_tasks_if_changed(vault, &tasks)?;
     Ok(tasks)
 }
 
-pub fn save_tasks(vault: &Path, tasks: &[Task]) -> io::Result<()> {
+fn render_tasks(tasks: &[Task]) -> String {
     let mut out = String::from("# Tasks\n\n");
     for (label, key) in COLUMNS {
         out.push_str(&format!("## {}\n\n", label));
@@ -318,16 +296,65 @@ pub fn save_tasks(vault: &Path, tasks: &[Task]) -> io::Result<()> {
         }
         out.push('\n');
     }
-    fs::write(tasks_file(vault), out.trim_end().to_string() + "\n")
+    out.trim_end().to_string() + "\n"
+}
+
+fn write_tasks_if_changed(vault: &Path, tasks: &[Task]) -> io::Result<()> {
+    let next = render_tasks(tasks);
+    let path = tasks_file(vault);
+    if path.exists() {
+        let current = fs::read_to_string(&path)?;
+        if current == next {
+            return Ok(());
+        }
+    }
+    fs::write(path, next)
+}
+
+fn apply_auto_archive(mut tasks: Vec<Task>, settings: &AppSettings) -> Vec<Task> {
+    if !settings.auto_archive_done {
+        return tasks;
+    }
+
+    let today = Local::now().date_naive();
+    let archive_after = settings.auto_archive_days.max(1) as i64;
+
+    for task in &mut tasks {
+        if task.column != "done" || task.archived || task.completed_at.is_empty() {
+            continue;
+        }
+
+        if let Ok(done_date) = NaiveDate::parse_from_str(&task.completed_at, "%Y-%m-%d") {
+            if (today - done_date).num_days() >= archive_after {
+                task.archived = true;
+            }
+        }
+    }
+
+    tasks
+}
+
+pub fn save_tasks(vault: &Path, tasks: &[Task], settings: &AppSettings) -> io::Result<()> {
+    let tasks = apply_auto_archive(tasks.to_vec(), &settings);
+    write_tasks_if_changed(vault, &tasks)
 }
 
 /// Ensure the vault folder structure exists.
 pub fn ensure_vault(vault: &Path) -> io::Result<()> {
     fs::create_dir_all(people_dir(vault))?;
     if !tasks_file(vault).exists() {
-        save_tasks(vault, &[])?;
+        save_tasks(vault, &[], &AppSettings::default())?;
     }
     Ok(())
+}
+
+pub fn read_legacy_app_settings(vault: &Path) -> io::Result<AppSettings> {
+    let path = legacy_settings_file(vault);
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let content = fs::read_to_string(path)?;
+    serde_json::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 // ---------------------------------------------------------------------------
