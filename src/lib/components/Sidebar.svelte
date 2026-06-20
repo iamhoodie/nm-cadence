@@ -229,6 +229,15 @@
     setTimeout(() => fireAppAction(action), 0);
   }
 
+  function openAddPersonForGroup(groupKey) {
+    closeContextMenu();
+    screen.set("people");
+    setTimeout(
+      () => fireAppAction("new-person", { group: groupKey === "__ungrouped" ? "" : groupKey }),
+      0
+    );
+  }
+
   function openPersonContextMenu(event, person) {
     event.preventDefault();
     contextMenu = {
@@ -392,96 +401,98 @@
     {/each}
   </nav>
 
-  <div class="people-head">
-    <span class="mono-label">YOUR PEOPLE</span>
-    <span class="count">{$people.length}</span>
-  </div>
-  <div class="search-wrap">
-    <input class="search" placeholder="Search people" bind:value={searchQuery} />
-    {#if searchQuery.trim()}
-      <button class="search-clear-btn" onclick={() => (searchQuery = "")} aria-label="Clear people search">
-        ×
-      </button>
-    {/if}
-  </div>
-
-  {#if searchQuery.trim()}
-    <div class="search-results">
-      {#if searchResults.length}
-        {#each searchResults as person (person.slug)}
-          <button
-            class="people-suggestion sidebar-search-result"
-            onclick={() => maybeOpenPerson(person.slug)}
-            oncontextmenu={(event) => openPersonContextMenu(event, person)}
-          >
-            <span class="people-suggestion-av" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
-            <span class="search-result-copy">
-              <span class="people-suggestion-name">{person.name}</span>
-              <span class="search-result-role">{person.role || "No role"}</span>
-            </span>
-          </button>
-        {/each}
-      {:else}
-        <div class="search-empty">No people found.</div>
+  <div class="sidebar-main">
+    <div class="people-head">
+      <span class="mono-label">YOUR PEOPLE</span>
+      <span class="count">{$people.length}</span>
+    </div>
+    <div class="search-wrap">
+      <input class="search" placeholder="Search people" bind:value={searchQuery} />
+      {#if searchQuery.trim()}
+        <button class="search-clear-btn" onclick={() => (searchQuery = "")} aria-label="Clear people search">
+          ×
+        </button>
       {/if}
     </div>
-  {/if}
 
-  <div class="scroll list" class:list--hidden={searchQuery.trim()}>
-    {#each groups() as group}
-      <div
-        class="folder-block"
-        class:folder-block--active={activeDropGroup === group.key}
-        class:folder-block--sorting={activeFolderDropKey === group.key}
-        data-drop-group={group.key}
-        data-folder-key={group.key}
-        role="group"
-      >
-        <div
-          class="folder-row"
-          role="presentation"
-          onpointerdown={(event) => beginGroupDrag(event, group)}
-          oncontextmenu={(event) => openGroupContextMenu(event, group)}
-        >
-          <button class="folder-toggle" onclick={() => toggleCollapse(group.key)}>
-            <span class="tri" class:open={!collapsed.has(group.key)}>▸</span>
-            <span class="folder-dot" style={`background:${group.color}`}></span>
-            <span class="folder-name">{group.label}</span>
-            <span class="folder-count">{group.people.length}</span>
-          </button>
-        </div>
-
-        {#if !collapsed.has(group.key)}
-          {#each group.people as person (person.slug)}
-            <div
-              class="row"
-              class:active={$selectedSlug === person.slug && $screen === "person"}
-              role="button"
-              tabindex="0"
-              onpointerdown={(event) => beginPointerDrag(event, person)}
+    {#if searchQuery.trim()}
+      <div class="scroll search-results">
+        {#if searchResults.length}
+          {#each searchResults as person (person.slug)}
+            <button
+              class="people-suggestion sidebar-search-result"
               onclick={() => maybeOpenPerson(person.slug)}
-              onkeydown={(event) => event.key === "Enter" && maybeOpenPerson(person.slug)}
               oncontextmenu={(event) => openPersonContextMenu(event, person)}
             >
-              <span class="avatar" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
-              <span class="who">
-                <span class="name">{person.name}</span>
-                <span class="role">{person.role}</span>
+              <span class="people-suggestion-av" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
+              <span class="search-result-copy">
+                <span class="people-suggestion-name">{person.name}</span>
+                <span class="search-result-role">{person.role || "No role"}</span>
               </span>
-            </div>
+            </button>
           {/each}
-          {#if group.people.length === 0}
-            <div class="folder-empty">Drop a person here</div>
-          {/if}
+        {:else}
+          <div class="search-empty">No people found.</div>
         {/if}
       </div>
-    {/each}
-
-    {#if !addingFolder}
-      <button class="new-folder-btn" onclick={openNewFolderModal}>
-        + New folder
-      </button>
     {/if}
+
+    <div class="scroll list" class:list--hidden={searchQuery.trim()}>
+      {#each groups() as group}
+        <div
+          class="folder-block"
+          class:folder-block--active={activeDropGroup === group.key}
+          class:folder-block--sorting={activeFolderDropKey === group.key}
+          data-drop-group={group.key}
+          data-folder-key={group.key}
+          role="group"
+        >
+          <div
+            class="folder-row"
+            role="presentation"
+            onpointerdown={(event) => beginGroupDrag(event, group)}
+            oncontextmenu={(event) => openGroupContextMenu(event, group)}
+          >
+            <button class="folder-toggle" onclick={() => toggleCollapse(group.key)}>
+              <span class="tri" class:open={!collapsed.has(group.key)}>▸</span>
+              <span class="folder-dot" style={`background:${group.color}`}></span>
+              <span class="folder-name">{group.label}</span>
+              <span class="folder-count">{group.people.length}</span>
+            </button>
+          </div>
+
+          {#if !collapsed.has(group.key)}
+            {#each group.people as person (person.slug)}
+              <div
+                class="row"
+                class:active={$selectedSlug === person.slug && $screen === "person"}
+                role="button"
+                tabindex="0"
+                onpointerdown={(event) => beginPointerDrag(event, person)}
+                onclick={() => maybeOpenPerson(person.slug)}
+                onkeydown={(event) => event.key === "Enter" && maybeOpenPerson(person.slug)}
+                oncontextmenu={(event) => openPersonContextMenu(event, person)}
+              >
+                <span class="avatar" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
+                <span class="who">
+                  <span class="name">{person.name}</span>
+                  <span class="role">{person.role}</span>
+                </span>
+              </div>
+            {/each}
+            {#if group.people.length === 0}
+              <div class="folder-empty">Drop a person here</div>
+            {/if}
+          {/if}
+        </div>
+      {/each}
+
+      {#if !addingFolder}
+        <button class="new-folder-btn" onclick={openNewFolderModal}>
+          + New folder
+        </button>
+      {/if}
+    </div>
   </div>
 
   <UpdaterPanel />
@@ -526,6 +537,7 @@
       <button class="person-context-item" onclick={() => openPersonAction(contextMenu.slug, "edit-person")}>Edit</button>
       <button class="person-context-item person-context-item--danger" onclick={() => openPersonAction(contextMenu.slug, "delete-person")}>Delete</button>
     {:else if contextMenu.kind === "group"}
+      <button class="person-context-item" onclick={() => openAddPersonForGroup(contextMenu.groupKey)}>Add person</button>
       <button class="person-context-item" onclick={() => { openEditFolderModal(contextMenu.groupKey); closeContextMenu(); }}>Edit</button>
       <button class="person-context-item person-context-item--danger" onclick={() => { requestRemoveFolder(contextMenu.groupKey); closeContextMenu(); }}>Delete</button>
     {/if}
@@ -632,6 +644,12 @@
     gap: 2px;
     margin-bottom: 24px;
   }
+  .sidebar-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
   .nav-item {
     text-align: left;
     border: none;
@@ -701,6 +719,8 @@
     flex-direction: column;
     gap: 6px;
     margin-bottom: 8px;
+    flex: 1;
+    min-height: 0;
   }
   .sidebar-search-result {
     width: 100%;
@@ -744,6 +764,7 @@
   }
   .list {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;

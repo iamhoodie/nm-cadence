@@ -43,11 +43,11 @@
     color: newGroup ? $folders.find((folder) => folder.name === newGroup)?.color || GROUP_COLORS[0] : GROUP_COLORS[0],
   });
 
-  function openAdd() {
+  function openAdd(group = "") {
     adding = true;
     newName = "";
     newRole = "";
-    newGroup = "";
+    newGroup = group;
     addError = "";
   }
 
@@ -71,7 +71,7 @@
     if (!action?.token || action.token === handledActionToken) return;
     if (action.type !== "new-person") return;
     handledActionToken = action.token;
-    openAdd();
+    openAdd(action.detail?.group || "");
     clearAppAction();
   });
 </script>
@@ -81,7 +81,7 @@
     <h1>People</h1>
     <p>{$people.length} people across {grouped().length || 1} groups</p>
   </div>
-  <button class="ghost-btn" onclick={openAdd}>+ Add person</button>
+  <button class="ghost-btn" onclick={() => openAdd()}>+ Add person</button>
 </header>
 
 <div class="scroll body">
@@ -103,7 +103,7 @@
     <div class="empty-state">
       <div class="empty-title">No people yet</div>
       <div class="empty-sub">Add your direct reports and teammates to start tracking 1:1s.</div>
-      <button class="ghost-btn" onclick={openAdd}>+ Add your first person</button>
+      <button class="ghost-btn" onclick={() => openAdd()}>+ Add your first person</button>
     </div>
   {/if}
 </div>

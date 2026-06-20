@@ -142,6 +142,33 @@
     return task.due_time ? `${task.due} ${task.due_time}` : task.due;
   }
 
+  function taskDueDate(task) {
+    if (!task?.due) return null;
+    if (task.due_time) {
+      const parsed = new Date(`${task.due}T${task.due_time}`);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    const parsed = new Date(`${task.due}T23:59:59`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function taskDueState(task) {
+    const dueDate = taskDueDate(task);
+    if (!dueDate || task?.done || task?.column === "done" || task?.archived) return "";
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+
+    if (dueStart < todayStart || dueDate.getTime() < now.getTime()) return "overdue";
+    if (dueStart.getTime() === todayStart.getTime()) return "today";
+    return "";
+  }
+
+  function dueTagLabel(task) {
+    return formatTaskDue(task);
+  }
+
   function shiftMonth(iso, delta) {
     const date = parseIsoDate(iso) || new Date();
     return formatIsoDate(new Date(date.getFullYear(), date.getMonth() + delta, 1));
@@ -527,8 +554,11 @@
         role="group"
       >
         {#each todoTasks as { task, index } (`todo-${index}`)}
+          {@const dueState = taskDueState(task)}
           <div
             class="card"
+            class:card--overdue={dueState === "overdue"}
+            class:card--due-today={dueState === "today"}
             class:card--drop-target={activeDropIndex === index && dragIndex !== index}
             role="button"
             tabindex="0"
@@ -537,6 +567,25 @@
             onclick={() => maybeOpenEdit(index)}
             onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
           >
+            {#if dueState}
+              <span
+                class="card-state-badge"
+                class:card-state-badge--overdue={dueState === "overdue"}
+                class:card-state-badge--today={dueState === "today"}
+                aria-label={dueState === "overdue" ? "Overdue" : "Due today"}
+                title={dueState === "overdue" ? "Overdue" : "Due today"}
+              >
+                {#if dueState === "overdue"}
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 4.2a.95.95 0 0 1 .95.95v6.1a.95.95 0 1 1-1.9 0v-6.1A.95.95 0 0 1 10 4.2Zm0 11.6a1.15 1.15 0 1 1 0-2.3 1.15 1.15 0 0 1 0 2.3Z" fill="currentColor"></path>
+                  </svg>
+                {:else}
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 3.2a6.8 6.8 0 1 1 0 13.6 6.8 6.8 0 0 1 0-13.6Zm0 1.6a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 0 0 0-10.4Zm.8 1.9v3l2.2 1.7a.8.8 0 0 1-.98 1.26l-.09-.07-2.5-1.9a.8.8 0 0 1-.3-.54V6.7a.8.8 0 0 1 1.6 0Z" fill="currentColor"></path>
+                  </svg>
+                {/if}
+              </span>
+            {/if}
             <span class="card-bar" style="background:{priorityColor(task.priority)}"></span>
             <span class="card-title">{task.title}</span>
             <div class="card-foot">
@@ -549,12 +598,11 @@
                     <span class="person-text">{name}</span>
                   {/if}
                 {/each}
-                {#if taskPeopleList(task).length === 0}
-                  <span class="person-none">Unassigned</span>
-                {/if}
               </div>
               {#if task.due}
-                <span class="due-tag">{formatTaskDue(task)}</span>
+                <div class="card-due-row">
+                  <span class="due-tag" class:due-tag--overdue={dueState === "overdue"} class:due-tag--today={dueState === "today"}>{dueTagLabel(task)}</span>
+                </div>
               {/if}
             </div>
           </div>
@@ -581,8 +629,11 @@
         role="group"
       >
         {#each doingTasks as { task, index } (`doing-${index}`)}
+          {@const dueState = taskDueState(task)}
           <div
             class="card card--doing"
+            class:card--overdue={dueState === "overdue"}
+            class:card--due-today={dueState === "today"}
             class:card--drop-target={activeDropIndex === index && dragIndex !== index}
             role="button"
             tabindex="0"
@@ -591,6 +642,25 @@
             onclick={() => maybeOpenEdit(index)}
             onkeydown={(e) => e.key === "Enter" && maybeOpenEdit(index)}
           >
+            {#if dueState}
+              <span
+                class="card-state-badge"
+                class:card-state-badge--overdue={dueState === "overdue"}
+                class:card-state-badge--today={dueState === "today"}
+                aria-label={dueState === "overdue" ? "Overdue" : "Due today"}
+                title={dueState === "overdue" ? "Overdue" : "Due today"}
+              >
+                {#if dueState === "overdue"}
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 4.2a.95.95 0 0 1 .95.95v6.1a.95.95 0 1 1-1.9 0v-6.1A.95.95 0 0 1 10 4.2Zm0 11.6a1.15 1.15 0 1 1 0-2.3 1.15 1.15 0 0 1 0 2.3Z" fill="currentColor"></path>
+                  </svg>
+                {:else}
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 3.2a6.8 6.8 0 1 1 0 13.6 6.8 6.8 0 0 1 0-13.6Zm0 1.6a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 0 0 0-10.4Zm.8 1.9v3l2.2 1.7a.8.8 0 0 1-.98 1.26l-.09-.07-2.5-1.9a.8.8 0 0 1-.3-.54V6.7a.8.8 0 0 1 1.6 0Z" fill="currentColor"></path>
+                  </svg>
+                {/if}
+              </span>
+            {/if}
             <span class="card-bar" style="background:{priorityColor(task.priority)}"></span>
             <span class="card-title">{task.title}</span>
             <div class="card-foot">
@@ -603,12 +673,11 @@
                     <span class="person-text">{name}</span>
                   {/if}
                 {/each}
-                {#if taskPeopleList(task).length === 0}
-                  <span class="person-none">Unassigned</span>
-                {/if}
               </div>
               {#if task.due}
-                <span class="due-tag">{formatTaskDue(task)}</span>
+                <div class="card-due-row">
+                  <span class="due-tag" class:due-tag--overdue={dueState === "overdue"} class:due-tag--today={dueState === "today"}>{dueTagLabel(task)}</span>
+                </div>
               {/if}
             </div>
           </div>
@@ -654,9 +723,7 @@
                 <span class="check-icon">✓</span>
                 <div class="card-done-body">
                   <span class="card-title card-title--done">{task.title}</span>
-                  {#if taskPeopleList(task).length > 0}
-                    <span class="person-text">{taskPeopleList(task).join(", ")}</span>
-                  {/if}
+                  <span class:person-none={taskPeopleList(task).length === 0} class="person-text">{taskPeopleList(task).length ? taskPeopleList(task).join(", ") : "Unassigned"}</span>
                 </div>
               </div>
             {/each}
@@ -700,9 +767,7 @@
                         <span class="check-icon">✓</span>
                         <div class="card-done-body">
                           <span class="card-title card-title--done">{task.title}</span>
-                          {#if taskPeopleList(task).length > 0}
-                            <span class="person-text">{taskPeopleList(task).join(", ")}</span>
-                          {/if}
+                          <span class:person-none={taskPeopleList(task).length === 0} class="person-text">{taskPeopleList(task).length ? taskPeopleList(task).join(", ") : "Unassigned"}</span>
                         </div>
                       </div>
                     {/each}
@@ -1060,6 +1125,41 @@
     box-shadow: 0 3px 12px rgba(60, 50, 30, 0.1);
     transform: translateY(-1px);
   }
+  .card--overdue {
+    background: linear-gradient(180deg, #fff7f5, #fffdfb);
+    border-color: #e3b7b0;
+    box-shadow: inset 0 0 0 1px rgba(178, 85, 72, 0.12), 0 2px 8px rgba(178, 85, 72, 0.08);
+  }
+  .card--due-today {
+    background: linear-gradient(180deg, #fffaf1, #fffdfb);
+    border-color: #e4cfab;
+  }
+  .card-state-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+  .card-state-badge svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+  }
+  .card-state-badge--overdue {
+    background: #f3d8d2;
+    color: var(--over);
+    box-shadow: inset 0 0 0 1px rgba(178, 85, 72, 0.18);
+  }
+  .card-state-badge--today {
+    background: #f2e3bf;
+    color: #8c6430;
+    box-shadow: inset 0 0 0 1px rgba(184, 137, 63, 0.18);
+  }
   .card--drop-target {
     box-shadow: inset 0 2px 0 0 var(--accent), 0 4px 14px rgba(60, 50, 30, 0.1);
   }
@@ -1138,6 +1238,7 @@
     line-height: 1.4;
     color: var(--ink);
     font-weight: 500;
+    padding-right: 28px;
   }
   .card-title--done {
     text-decoration: line-through;
@@ -1152,8 +1253,8 @@
   }
   .card-foot {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
     gap: 6px;
   }
   .card-people {
@@ -1162,6 +1263,11 @@
     gap: 3px;
     flex-wrap: wrap;
     min-width: 0;
+    min-height: 20px;
+  }
+  .card-due-row {
+    display: flex;
+    justify-content: flex-end;
   }
   .person-av {
     width: 20px;
@@ -1178,13 +1284,28 @@
   .person-text { font-size: 11px; color: var(--muted-2); }
   .person-none { font-size: 11px; color: var(--faint); font-style: italic; }
   .due-tag {
-    font-size: 10px;
+    font-size: 11px;
     font-family: var(--mono);
-    color: var(--muted-2);
-    background: #ece6da;
-    border-radius: 5px;
-    padding: 2px 6px;
+    color: var(--ink-2);
+    background: #efe3cc;
+    border-radius: 7px;
+    padding: 4px 8px;
     flex: none;
+    box-shadow: inset 0 0 0 1px rgba(180, 141, 78, 0.12);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .due-tag--overdue {
+    color: var(--over);
+    background: #f7e4e0;
+    box-shadow: inset 0 0 0 1px rgba(178, 85, 72, 0.2);
+    font-weight: 700;
+  }
+  .due-tag--today {
+    color: #8c6430;
+    background: #f6e9cf;
+    box-shadow: inset 0 0 0 1px rgba(184, 137, 63, 0.2);
+    font-weight: 700;
   }
   .check-icon {
     width: 20px; height: 20px; border-radius: 6px;
