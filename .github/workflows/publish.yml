@@ -67,4 +67,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
-          uploadUpdaterJson: true
+          includeUpdaterJson: true

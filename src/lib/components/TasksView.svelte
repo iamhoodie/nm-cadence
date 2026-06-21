@@ -704,12 +704,14 @@
       {#each calMonthGrid as week}
         {#each week as cell}
           {@const dayTasks = tasksByDate.get(cell.iso) || []}
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
           <div
             class="cal-cell"
             class:cal-cell--out={!cell.inMonth}
             class:cal-cell--today={cell.iso === todayIso()}
+            role="button"
+            tabindex="0"
             onclick={() => openNewOnDate(cell.iso)}
+            onkeydown={(e) => e.key === "Enter" && openNewOnDate(cell.iso)}
           >
             <div class="cal-day-num">{cell.label}</div>
             <div class="cal-task-list">
@@ -1643,7 +1645,6 @@
     min-width: 0;
   }
   .person-text { font-size: 11px; color: var(--muted-2); }
-  .person-none { font-size: 11px; color: var(--faint); font-style: italic; }
   .check-icon {
     width: 20px; height: 20px; border-radius: 6px;
     background: var(--accent); color: white;
@@ -2124,27 +2125,6 @@
     flex-shrink: 0;
   }
   .foot-right { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-  .icon-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid var(--line-2);
-    background: var(--card);
-    color: var(--muted);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    flex: none;
-  }
-  .icon-btn:hover {
-    color: var(--ink);
-    background: var(--panel-2);
-  }
-  .icon-btn--danger:hover {
-    color: var(--over);
-    border-color: #e0b9b4;
-    background: #fbf0ee;
-  }
 
   @media (max-width: 1100px) {
     .board { grid-template-columns: 1fr; }
