@@ -78,6 +78,58 @@
     openEdit(idx);
   }
 
+  // View mode
+  let viewMode = $state("board"); // "board" | "calendar"
+  let calMonth = $state(startOfMonthIso(todayIso()));
+
+  const calMonthGrid = $derived(buildMonthGrid(calMonth));
+
+  const tasksByDate = $derived.by(() => {
+    const map = new Map();
+    $tasks.forEach((task, i) => {
+      if (!task.due || task.archived) return;
+      if (!map.has(task.due)) map.set(task.due, []);
+      map.get(task.due).push({ task, index: i });
+    });
+    return map;
+  });
+
+  function buildMonthGrid(isoMonth) {
+    const first = parseIsoDate(isoMonth) || new Date();
+    const year = first.getFullYear();
+    const month = first.getMonth();
+    const firstDow = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDow; i++) {
+      const d = new Date(year, month, 1 - firstDow + i);
+      cells.push({ iso: formatIsoDate(d), inMonth: false, label: d.getDate() });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push({ iso: formatIsoDate(new Date(year, month, d)), inMonth: true, label: d });
+    }
+    const rem = cells.length % 7;
+    if (rem > 0) {
+      for (let i = 1; i <= 7 - rem; i++) {
+        const d = new Date(year, month + 1, i);
+        cells.push({ iso: formatIsoDate(d), inMonth: false, label: d.getDate() });
+      }
+    }
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+    return weeks;
+  }
+
+  function openNewOnDate(iso) {
+    creating = true; editingIndex = -1; modalOpen = true;
+    title = ""; taskPeople = []; due = iso; priority = "med"; peopleInput = "";
+    dueTime = ""; description = "";
+    peoplePickerOpen = false;
+    datePickerOpen = false;
+    visibleMonth = startOfMonthIso(iso);
+    syncDescEditorFromState();
+  }
+
   // Inline quick-add in the "todo" column
   let quickTitle  = $state("");
   let quickAdding = $state(false);
@@ -625,10 +677,60 @@
       <p>Track follow-ups, active work, and completed items</p>
     </div>
   </div>
-  <button class="ghost-btn" onclick={openNew}>+ New task</button>
+  <div class="header-right">
+    <div class="view-toggle">
+      <button class="view-toggle-btn" class:active={viewMode === 'board'} onclick={() => (viewMode = 'board')}>Board</button>
+      <button class="view-toggle-btn" class:active={viewMode === 'calendar'} onclick={() => (viewMode = 'calendar')}>Calendar</button>
+    </div>
+    <button class="ghost-btn" onclick={openNew}>+ New task</button>
+  </div>
 </header>
 
 <div class="body">
+
+{#if viewMode === 'calendar'}
+  <div class="cal">
+    <div class="cal-nav">
+      <button class="cal-nav-btn" onclick={() => (calMonth = shiftMonth(calMonth, -1))}>‹</button>
+      <span class="cal-month-label">{monthLabel(calMonth)}</span>
+      <button class="cal-nav-btn" onclick={() => (calMonth = shiftMonth(calMonth, 1))}>›</button>
+    </div>
+    <div class="cal-weekdays">
+      {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as wd}
+        <div class="cal-weekday">{wd}</div>
+      {/each}
+    </div>
+    <div class="cal-grid" style="grid-template-rows: repeat({calMonthGrid.length}, 1fr);">
+      {#each calMonthGrid as week}
+        {#each week as cell}
+          {@const dayTasks = tasksByDate.get(cell.iso) || []}
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <div
+            class="cal-cell"
+            class:cal-cell--out={!cell.inMonth}
+            class:cal-cell--today={cell.iso === todayIso()}
+            onclick={() => openNewOnDate(cell.iso)}
+          >
+            <div class="cal-day-num">{cell.label}</div>
+            <div class="cal-task-list">
+              {#each dayTasks as { task, index }}
+                <button
+                  class="cal-task-chip"
+                  style="border-left: 3px solid {priorityColor(task.priority)}"
+                  onclick={(e) => { e.stopPropagation(); openView(index); }}
+                >
+                  {task.title}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/each}
+      {/each}
+    </div>
+  </div>
+{/if}
+
+{#if viewMode === 'board'}
   <div class="board">
 
     <!-- ── To do ── -->
@@ -813,11 +915,13 @@
     </div>
 
   </div>
+{/if}
+
 </div>
 
 <!-- ── Task modal ── -->
 {#if modalOpen}
-  <div class="overlay" role="dialog">
+  <div class="overlay" role="dialog" tabindex="-1">
     <div class="modal">
       <div class="modal-head">{creating ? "New task" : "Edit task"}</div>
 
@@ -982,52 +1086,42 @@
 {#if viewModalOpen && $tasks[viewingIndex]}
   {@const vt = $tasks[viewingIndex]}
   {@const vtPeople = Array.isArray(vt.people) ? vt.people : (vt.person && vt.person !== "—" ? [vt.person] : [])}
-  <div class="overlay" role="dialog" onclick={(e) => e.target === e.currentTarget && closeView()}>
+  <div class="overlay" role="dialog" tabindex="-1" onclick={(e) => e.target === e.currentTarget && closeView()} onkeydown={(e) => e.key === "Escape" && closeView()}>
     <div class="view-modal">
       <span class="view-bar" style="background:{priorityColor(vt.priority)}"></span>
       <div class="view-head">
-        <h2 class="view-title">{vt.title}</h2>
+        <div class="view-head-body">
+          <h2 class="view-title">{vt.title}</h2>
+          <div class="view-pills">
+            <span class="view-pill" style="--dot:{vt.column === 'todo' ? '#b0a898' : vt.column === 'doing' ? 'var(--due)' : 'var(--accent)'}">
+              <span class="view-pill-dot"></span>{vt.column === "todo" ? "To do" : vt.column === "doing" ? "In progress" : "Done"}
+            </span>
+            <span class="view-pill" style="--dot:{priorityColor(vt.priority)}">
+              <span class="view-pill-dot"></span>{vt.priority || "med"}
+            </span>
+            {#if vt.due}
+              <span class="view-pill view-pill--due">{dueTagLabel(vt)}</span>
+            {/if}
+            {#if vtPeople.length}
+              {#each vtPeople as name}
+                {@const p = $people.find((person) => person.name === name)}
+                {#if p}
+                  <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
+                {:else}
+                  <span class="view-pill">{name}</span>
+                {/if}
+              {/each}
+            {/if}
+          </div>
+        </div>
         <button class="view-close-btn" onclick={closeView} title="Close" aria-label="Close">×</button>
       </div>
 
-      <div class="view-scroll">
-        {#if vt.description}
+      {#if vt.description}
+        <div class="view-scroll">
           <div class="view-desc">{@html vt.description}</div>
-        {/if}
-
-        <div class="view-meta">
-          {#if vtPeople.length}
-            <div class="view-meta-row">
-              <span class="view-meta-label">PEOPLE</span>
-              <div class="view-people">
-                {#each vtPeople as name}
-                  {@const p = $people.find((person) => person.name === name)}
-                  {#if p}
-                    <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
-                  {:else}
-                    <span class="view-person-text">{name}</span>
-                  {/if}
-                {/each}
-              </div>
-            </div>
-          {/if}
-          {#if vt.due}
-            <div class="view-meta-row">
-              <span class="view-meta-label">DUE</span>
-              <span class="view-meta-val">{dueTagLabel(vt)}</span>
-            </div>
-          {/if}
-          <div class="view-meta-row">
-            <span class="view-meta-label">PRIORITY</span>
-            <span class="view-priority-dot" style="background:{priorityColor(vt.priority)}"></span>
-            <span class="view-meta-val">{vt.priority || "med"}</span>
-          </div>
-          <div class="view-meta-row">
-            <span class="view-meta-label">STATUS</span>
-            <span class="view-meta-val">{vt.column === "todo" ? "To do" : vt.column === "doing" ? "In progress" : "Done"}</span>
-          </div>
         </div>
-      </div><!-- end view-scroll -->
+      {/if}
 
       <div class="modal-foot">
         <div class="foot-right">
@@ -1057,7 +1151,7 @@
 {/if}
 
 {#if datePickerOpen}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="date-portal-backdrop" onclick={() => (datePickerOpen = false)}></div>
   <div class="date-popover date-popover--fixed" style="bottom:{datePopoverPos.bottom}px;left:{datePopoverPos.left}px;">
     <div class="date-popover-head">
@@ -1192,6 +1286,145 @@
     padding: 20px 24px;
     min-height: 0;
   }
+  /* ── View toggle ── */
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .view-toggle {
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .view-toggle-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    color: var(--muted-2);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .view-toggle-btn:hover { background: #f2ebe0; color: var(--ink); }
+  .view-toggle-btn.active { background: var(--accent); color: white; }
+
+  /* ── Calendar ── */
+  .cal {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .cal-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .cal-nav-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--ink);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cal-nav-btn:hover { background: #f2ebe0; }
+  .cal-month-label {
+    font-family: var(--serif);
+    font-size: 20px;
+    color: var(--ink);
+  }
+  .cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .cal-weekday {
+    text-align: center;
+    font-size: 10px;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding: 4px 0;
+  }
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    flex: 1;
+    min-height: 0;
+  }
+  .cal-cell {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+    cursor: pointer;
+    min-height: 0;
+    transition: background 0.1s;
+  }
+  .cal-cell:hover { background: #f7f2ea; }
+  .cal-cell--out {
+    background: rgba(251, 247, 240, 0.4);
+    border-color: rgba(210, 200, 185, 0.35);
+  }
+  .cal-cell--out:hover { background: rgba(247, 242, 234, 0.7); }
+  .cal-cell--today {
+    border-color: var(--accent);
+    background: rgba(180, 141, 78, 0.05);
+  }
+  .cal-day-num {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .cal-cell--out .cal-day-num { color: var(--faint); }
+  .cal-cell--today .cal-day-num { color: var(--accent); }
+  .cal-task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .cal-task-chip {
+    width: 100%;
+    text-align: left;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 3px 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    font-family: inherit;
+  }
+  .cal-task-chip:hover { background: #ede6d8; }
+
   .board {
     flex: 1;
     display: grid;
@@ -1930,15 +2163,6 @@
     flex-direction: column;
     box-shadow: 0 16px 48px rgba(44, 42, 38, 0.2);
   }
-  .view-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-    padding: 0 28px 18px 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
   .view-bar {
     position: absolute;
     left: 0;
@@ -1954,8 +2178,14 @@
     padding: 24px 28px 18px 32px;
     flex-shrink: 0;
   }
-  .view-title {
+  .view-head-body {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .view-title {
     font-family: var(--serif);
     font-size: 24px;
     font-weight: 500;
@@ -1963,10 +2193,45 @@
     color: var(--ink);
     margin: 0;
   }
-  .view-desc {
+  .view-pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .view-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    text-transform: capitalize;
+  }
+  .view-pill-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--dot);
+    flex: none;
+  }
+  .view-pill--due {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+  .view-scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding: 0 28px 18px 32px;
+  }
+  .view-desc {
     border: 1px solid var(--line-2);
     border-radius: 10px;
     padding: 14px;
@@ -1981,48 +2246,6 @@
   .view-desc :global(h3) { font-size: 14px; font-weight: 600; margin: 6px 0 3px; }
   .view-desc :global(ul) { margin: 0 0 6px; padding-left: 20px; }
   .view-desc :global(li) { margin-bottom: 2px; }
-  .view-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--panel);
-  }
-  .view-meta-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .view-meta-label {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    color: var(--faint);
-    width: 60px;
-    flex: none;
-  }
-  .view-meta-val {
-    font-size: 13px;
-    color: var(--ink);
-  }
-  .view-people {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .view-person-text {
-    font-size: 13px;
-    color: var(--ink);
-  }
-  .view-priority-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    flex: none;
-  }
   .person-av {
     width: 24px;
     height: 24px;

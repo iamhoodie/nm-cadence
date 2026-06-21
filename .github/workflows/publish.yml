@@ -22,6 +22,9 @@ jobs:
           - label: macOS Intel
             platform: macos-latest
             target: x86_64-apple-darwin
+          - label: Windows x64
+            platform: windows-latest
+            target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
 
@@ -60,8 +63,8 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "SideEye v__VERSION__"
-          releaseBody: "Release includes macOS Apple Silicon (M1-M4) and macOS Intel builds."
-          releaseDraft: false
+          releaseBody: ""
+          releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
           uploadUpdaterJson: true

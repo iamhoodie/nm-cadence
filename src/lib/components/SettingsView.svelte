@@ -108,7 +108,7 @@
     </button>
     <div>
       <h1>Settings</h1>
-      <p>Choose where SideEye stores your vault and create a backup when you need one.</p>
+      <p>Manage your vault location, sync across computers, and configure app preferences.</p>
     </div>
   </div>
 </header>
@@ -126,7 +126,7 @@
     </div>
     <div class="path-box">{$vaultPath || "No vault selected yet."}</div>
     <div class="card-copy">
-      Pick a different folder to move the app onto another markdown vault. SideEye will reload people, folders, and tasks right away.
+      Your vault is a plain folder of markdown files. To sync across computers, choose a folder inside <strong>Google Drive</strong>, <strong>iCloud Drive</strong>, or <strong>Dropbox</strong>. Install the same sync app on each machine, choose the same folder, and your notes stay in sync automatically.
     </div>
   </section>
 

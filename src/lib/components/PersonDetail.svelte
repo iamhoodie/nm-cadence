@@ -289,13 +289,9 @@
   }
 
   function offsetWithinContainer(node, container) {
-    let top = 0;
-    let current = node;
-    while (current && current !== container) {
-      top += current.offsetTop || 0;
-      current = current.offsetParent;
-    }
-    return top;
+    const nodeRect = node.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    return nodeRect.top - containerRect.top + container.scrollTop;
   }
 
   function scrollToTargetConversation(target, attempt = 0) {
@@ -315,20 +311,9 @@
     const offsetTop = offsetWithinContainer(node, notesElement);
     const targetTop = Math.max(0, offsetTop - 28);
 
-    notesElement.scrollTo({
-      top: targetTop,
-      behavior: attempt === 0 ? "smooth" : "auto",
-    });
-
+    notesElement.scrollTo({ top: targetTop, behavior: "smooth" });
     queueConversationHighlight(key);
-
-    const closeEnough = Math.abs(notesElement.scrollTop - targetTop) < 6;
-    if (closeEnough || attempt >= 10) {
-      if (clearTargetWhenDone) targetConversation.set(null);
-      return;
-    }
-
-    window.setTimeout(() => scrollToConversationKey(key, attempt + 1, clearTargetWhenDone), 60);
+    if (clearTargetWhenDone) targetConversation.set(null);
   }
 
   $effect(() => {
