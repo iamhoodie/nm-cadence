@@ -63,8 +63,8 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "SideEye v__VERSION__"
-          releaseBody: ""
-          releaseDraft: true
+          releaseBody: "Calendar view for tasks, cleaner task detail modal, conversation scroll fix, and sync tips in Settings."
+          releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
           uploadUpdaterJson: true
