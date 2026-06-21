@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{ActivationPolicy, Emitter, Manager, State, WindowEvent};
+use tauri::{Emitter, Manager, State};
+#[cfg(target_os = "macos")]
+use tauri::{ActivationPolicy, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
@@ -631,11 +633,11 @@ pub fn run() {
             show_main_window(&app.handle());
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, _event| {
             #[cfg(target_os = "macos")]
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            if let WindowEvent::CloseRequested { api, .. } = _event {
                 api.prevent_close();
-                let _ = window.hide();
+                let _ = _window.hide();
             }
         })
         .on_menu_event(|app, event| {
