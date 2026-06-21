@@ -20,7 +20,7 @@ jobs:
             platform: macos-latest
             target: aarch64-apple-darwin
           - label: macOS Intel
-            platform: macos-latest
+            platform: macos-13
             target: x86_64-apple-darwin
           - label: Windows x64
             platform: windows-latest
@@ -63,7 +63,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "SideEye v__VERSION__"
-          releaseBody: "Calendar view for tasks, cleaner task detail modal, conversation scroll fix, sync tips in Settings, done tasks shown as strikethrough in calendar, sidebar groups remember their collapsed state, and the app now shows a banner and checks for updates automatically every 4 hours."
+          releaseBody: "New installs now default the vault to Application Support instead of Documents, fixing the permission prompt that appeared after every update. Also includes a calendar view, cleaner task modal, conversation scroll fix, done tasks shown as strikethrough in calendar, sidebar groups remember collapsed state, and automatic update checks every 4 hours."
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
