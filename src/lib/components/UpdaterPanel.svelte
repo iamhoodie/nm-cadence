@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { screen } from "../stores.js";
   import { checkForUpdate, getUpdaterStatus, installUpdate } from "../api.js";
   import { Settings, Info } from "lucide-svelte";
@@ -70,12 +70,29 @@
     }
   }
 
+  const FOUR_HOURS = 4 * 60 * 60 * 1000;
+  let interval;
+
   onMount(() => {
     refreshStatus({ autoCheck: true });
+    interval = setInterval(() => handleCheck(true), FOUR_HOURS);
   });
+
+  onDestroy(() => clearInterval(interval));
 </script>
 
 <section class="updates">
+  {#if updateInfo && !compact}
+    <div class="update-banner">
+      <div class="update-banner-text">
+        <span class="update-banner-label">Update available</span>
+        <span class="update-banner-version">v{updateInfo.version}</span>
+      </div>
+      <button class="update-banner-btn" onclick={handleInstall} disabled={installing}>
+        {installing ? "Installing…" : "Install"}
+      </button>
+    </div>
+  {/if}
   <div class="version-row" class:version-row--compact={compact}>
     <button class="settings-link" class:settings-link--compact={compact} onclick={() => screen.set("settings")} title="Settings" aria-label="Settings">
       {#if compact}
@@ -225,12 +242,60 @@
   .version-trigger--compact:focus-visible {
     background: rgba(226, 220, 205, 0.72);
   }
+  .update-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: #f5eedf;
+    border: 1px solid #e0cfa8;
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .update-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .update-banner-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .update-banner-version {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .update-banner-btn {
+    border: none;
+    background: var(--accent);
+    color: white;
+    border-radius: 7px;
+    padding: 5px 11px;
+    font-size: 12px;
+    cursor: pointer;
+    flex: none;
+  }
+  .update-banner-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
+  }
   .update-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--accent);
     flex: none;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.75); }
   }
   .overlay {
     position: fixed;
