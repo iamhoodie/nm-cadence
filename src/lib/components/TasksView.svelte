@@ -718,6 +718,7 @@
               {#each dayTasks as { task, index }}
                 <button
                   class="cal-task-chip"
+                  class:cal-task-chip--done={task.column === "done"}
                   style="border-left: 3px solid {priorityColor(task.priority)}"
                   onclick={(e) => { e.stopPropagation(); openView(index); }}
                 >
@@ -1426,6 +1427,12 @@
     font-family: inherit;
   }
   .cal-task-chip:hover { background: #ede6d8; }
+  .cal-task-chip--done {
+    text-decoration: line-through;
+    color: var(--muted-2);
+    border-left-color: transparent !important;
+    opacity: 0.7;
+  }
 
   .board {
     flex: 1;

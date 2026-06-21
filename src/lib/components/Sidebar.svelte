@@ -25,7 +25,14 @@
   let folderColor = $state(GROUP_COLORS[0]);
   let editingFolderName = $state("");
   let customFolderColorInput = $state();
-  let collapsed = $state(new Set());
+  function loadCollapsed() {
+    try {
+      const raw = localStorage.getItem("sideeye.collapsedGroups");
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  }
+
+  let collapsed = $state(loadCollapsed());
   let draggedSlug = $state(null);
   let dragMoved = $state(false);
   let activeDropGroup = $state("");
@@ -90,6 +97,7 @@
     if (next.has(name)) next.delete(name);
     else next.add(name);
     collapsed = next;
+    localStorage.setItem("sideeye.collapsedGroups", JSON.stringify([...next]));
   }
 
   async function submitFolder() {

@@ -63,7 +63,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "SideEye v__VERSION__"
-          releaseBody: "Calendar view for tasks, cleaner task detail modal, conversation scroll fix, and sync tips in Settings."
+          releaseBody: "Calendar view for tasks, cleaner task detail modal, conversation scroll fix, sync tips in Settings, done tasks shown as strikethrough in calendar, and sidebar groups now remember their collapsed state between sessions."
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
