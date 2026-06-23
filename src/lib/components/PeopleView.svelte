@@ -10,8 +10,9 @@
   }
 
   const grouped = $derived(() => {
-    const folderNames = [...new Set([...$folders.map((folder) => folder.name), ...$people.map((person) => person.group).filter(Boolean)])]
-      .sort((a, b) => a.localeCompare(b));
+    const ordered = new Set($folders.map((f) => f.name));
+    for (const person of $people) { if (person.group) ordered.add(person.group); }
+    const folderNames = [...ordered];
     const groups = folderNames.map((name) => ({
       key: name,
       label: name.toUpperCase(),

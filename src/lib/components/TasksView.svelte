@@ -226,7 +226,8 @@
   }
 
   function todayIso() {
-    return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    return formatIsoDate(d);
   }
 
   function parseIsoDate(iso) {
@@ -1095,26 +1096,25 @@
       <div class="view-head">
         <div class="view-head-body">
           <h2 class="view-title">{vt.title}</h2>
-          <div class="view-pills">
-            <span class="view-pill" style="--dot:{vt.column === 'todo' ? '#b0a898' : vt.column === 'doing' ? 'var(--due)' : 'var(--accent)'}">
-              <span class="view-pill-dot"></span>{vt.column === "todo" ? "To do" : vt.column === "doing" ? "In progress" : "Done"}
-            </span>
-            <span class="view-pill" style="--dot:{priorityColor(vt.priority)}">
-              <span class="view-pill-dot"></span>{vt.priority || "med"}
-            </span>
-            {#if vt.due}
-              <span class="view-pill view-pill--due">{dueTagLabel(vt)}</span>
-            {/if}
+          <div class="view-meta">
             {#if vtPeople.length}
-              {#each vtPeople as name}
-                {@const p = $people.find((person) => person.name === name)}
-                {#if p}
-                  <span class="person-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
-                {:else}
-                  <span class="view-pill">{name}</span>
-                {/if}
-              {/each}
+              <div class="view-meta-people">
+                {#each vtPeople as name}
+                  {@const p = $people.find((person) => person.name === name)}
+                  {#if p}
+                    <span class="view-av" style="background:{colorForPerson(p, $folders)}" title={p.name}>{initials(p.name)}</span>
+                  {:else}
+                    <span class="view-meta-text">{name}</span>
+                  {/if}
+                {/each}
+              </div>
             {/if}
+            {#if vt.due}
+              {#if vtPeople.length}<span class="view-meta-sep">·</span>{/if}
+              <span class="view-meta-text">{dueTagLabel(vt)}</span>
+            {/if}
+            {#if vt.due || vtPeople.length}<span class="view-meta-sep">·</span>{/if}
+            <span class="view-meta-text">{vt.column === "todo" ? "To do" : vt.column === "doing" ? "In progress" : "Done"}</span>
           </div>
         </div>
         <button class="view-close-btn" onclick={closeView} title="Close" aria-label="Close">×</button>
@@ -2180,37 +2180,35 @@
     color: var(--ink);
     margin: 0;
   }
-  .view-pills {
+  .view-meta {
     display: flex;
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
   }
-  .view-pill {
-    display: inline-flex;
+  .view-meta-people {
+    display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 3px 9px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-family: var(--mono);
-    letter-spacing: 0.05em;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    color: var(--ink-2);
-    text-transform: capitalize;
+    gap: 4px;
   }
-  .view-pill-dot {
-    width: 7px;
-    height: 7px;
+  .view-av {
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
-    background: var(--dot);
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 8px;
+    font-weight: 700;
     flex: none;
   }
-  .view-pill--due {
-    color: var(--muted);
+  .view-meta-text {
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+  .view-meta-sep {
     font-size: 11px;
-    letter-spacing: 0.03em;
+    color: var(--line-2);
   }
   .view-scroll {
     flex: 1;
@@ -2219,10 +2217,6 @@
     padding: 0 28px 18px 32px;
   }
   .view-desc {
-    border: 1px solid var(--line-2);
-    border-radius: 10px;
-    padding: 14px;
-    background: #fffdf9;
     font-size: 15px;
     line-height: 1.7;
     color: var(--ink);

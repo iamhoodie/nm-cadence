@@ -63,7 +63,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "SideEye v__VERSION__"
-          releaseBody: "New installs now default the vault to Application Support instead of Documents, fixing the permission prompt that appeared after every update. Also includes a calendar view, cleaner task modal, conversation scroll fix, done tasks shown as strikethrough in calendar, sidebar groups remember collapsed state, and automatic update checks every 4 hours."
+          releaseBody: "Fixed the calendar incorrectly highlighting today, added today's date to the dashboard header, people tab now follows your sidebar folder order, and new installs default the vault to Application Support (fixes the permission prompt after updates). Also includes automatic update checks every 4 hours and an update banner in the sidebar."
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}

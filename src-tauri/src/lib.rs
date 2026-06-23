@@ -145,10 +145,7 @@ fn refresh_tray_menu<R: tauri::Runtime>(
 }
 
 fn default_vault() -> PathBuf {
-    // ~/Documents/CadenceVault (falls back to current dir if Documents is unavailable).
-    dirs_document()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("CadenceVault")
+    app_config_dir().join("Vault")
 }
 
 fn app_config_dir() -> PathBuf {
@@ -233,17 +230,6 @@ fn copy_dir_recursive(source: &PathBuf, target: &PathBuf) -> Result<(), String> 
 }
 
 /// Minimal Documents-dir lookup without pulling in the `dirs` crate.
-fn dirs_document() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("Documents"))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var_os("HOME").map(|p| PathBuf::from(p).join("Documents"))
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------

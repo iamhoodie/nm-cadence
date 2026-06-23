@@ -161,6 +161,7 @@
       <p>See what needs attention this week</p>
     </div>
   </div>
+  <div class="header-date">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div>
 </header>
 
 <div class="body">
@@ -174,22 +175,6 @@
     </div>
 
     <div class="task-grid">
-      <div class="task-section task-section--overdue">
-        <div class="task-section-head">
-          <span class="task-icon"><AlertCircle size={16} strokeWidth={2} /></span>
-          <span>Overdue</span>
-          <span class="task-count">{dashboardTaskBuckets.overdue.length}</span>
-        </div>
-        {#if dashboardTaskBuckets.overdue.length}
-          <div class="task-list">
-            {#each dashboardTaskBuckets.overdue as task}
-              <TaskCard {task} dueState="overdue" dueLabel={friendlyDue(task)} onActivate={() => openTasks(task)} />
-            {/each}
-          </div>
-        {:else}
-          <div class="empty-copy">Nothing overdue right now.</div>
-        {/if}
-      </div>
 
       <div class="task-section task-section--today">
         <div class="task-section-head">
@@ -224,6 +209,23 @@
           <div class="empty-copy">Nothing else due this week.</div>
         {/if}
       </div>
+      <div class="task-section task-section--overdue">
+        <div class="task-section-head">
+          <span class="task-icon"><AlertCircle size={16} strokeWidth={2} /></span>
+          <span>Overdue</span>
+          <span class="task-count">{dashboardTaskBuckets.overdue.length}</span>
+        </div>
+        {#if dashboardTaskBuckets.overdue.length}
+          <div class="task-list">
+            {#each dashboardTaskBuckets.overdue as task}
+              <TaskCard {task} dueState="overdue" dueLabel={friendlyDue(task)} onActivate={() => openTasks(task)} />
+            {/each}
+          </div>
+        {:else}
+          <div class="empty-copy">Nothing overdue right now.</div>
+        {/if}
+      </div>
+
     </div>
   </section>
 
@@ -275,6 +277,11 @@
     display: flex;
     align-items: flex-start;
     gap: 14px;
+  }
+  .header-date {
+    font-family: var(--serif);
+    font-size: 14px;
+    color: var(--faint);
   }
   .sidebar-toggle-btn {
     border: 1px solid var(--line);
