@@ -120,7 +120,10 @@
         ...person,
         staleDays: daysSinceLastMet(person),
       }))
-      .filter((person) => !person.last_met || person.staleDays > stale1on1Days)
+      .filter((person) => {
+        if ($folders.find((f) => f.name === person.group)?.exclude_checkin) return false;
+        return !person.last_met || person.staleDays > stale1on1Days;
+      })
       .sort((a, b) => {
         if (!a.last_met && !b.last_met) return a.name.localeCompare(b.name);
         if (!a.last_met) return -1;

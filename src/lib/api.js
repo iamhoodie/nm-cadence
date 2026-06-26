@@ -178,16 +178,14 @@ export async function listFolders() {
   return invoke("list_folders");
 }
 
-export async function createFolder(name, color) {
+export async function createFolder(name, color, excludeCheckin = false) {
   if (!inTauri) return;
-  return invoke("create_folder", { name, color });
+  return invoke("create_folder", { name, color, excludeCheckin });
 }
 
-export async function updateFolder(name, nextName, color) {
-  if (!inTauri) {
-    return;
-  }
-  return invoke("update_folder", { name, nextName, color });
+export async function updateFolder(name, nextName, color, excludeCheckin = false) {
+  if (!inTauri) return;
+  return invoke("update_folder", { name, nextName, color, excludeCheckin });
 }
 
 export async function reorderFolders(names) {

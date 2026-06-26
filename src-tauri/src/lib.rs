@@ -440,15 +440,15 @@ fn list_folders(state: State<AppState>) -> Result<Vec<Folder>, String> {
 }
 
 #[tauri::command]
-fn create_folder(name: String, color: String, state: State<AppState>) -> Result<(), String> {
+fn create_folder(name: String, color: String, exclude_checkin: bool, state: State<AppState>) -> Result<(), String> {
     let v = state.vault.lock().unwrap().clone();
-    vault::create_folder(&v, &name, &color).map_err(|e| e.to_string())
+    vault::create_folder(&v, &name, &color, exclude_checkin).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn update_folder(name: String, next_name: String, color: String, state: State<AppState>) -> Result<(), String> {
+fn update_folder(name: String, next_name: String, color: String, exclude_checkin: bool, state: State<AppState>) -> Result<(), String> {
     let v = state.vault.lock().unwrap().clone();
-    vault::update_folder(&v, &name, &next_name, &color).map_err(|e| e.to_string())
+    vault::update_folder(&v, &name, &next_name, &color, exclude_checkin).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

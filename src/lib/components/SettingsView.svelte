@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { ChevronLeft, ChevronRight } from "lucide-svelte";
-  import { folders, people, screen, tasks, vaultPath, sidebarCollapsed, toggleSidebar } from "../stores.js";
+  import { folders, people, screen, tasks, vaultPath, sidebarCollapsed, toggleSidebar, spellCheck } from "../stores.js";
   import {
     createVaultBackup,
     getAppSettings,
@@ -22,6 +22,8 @@
   let autoArchiveDone = $state(true);
   let autoArchiveDays = $state(7);
   let stale1on1Days = $state(14);
+  let spellCheckEnabled = $state(true);
+  let savingSpellCheck = $state(false);
 
   async function refreshVaultData() {
     people.set(await listPeople());
@@ -43,6 +45,7 @@
       autoArchiveDone = settings.auto_archive_done;
       autoArchiveDays = settings.auto_archive_days;
       stale1on1Days = settings.stale_1on1_days;
+      spellCheckEnabled = settings.spell_check ?? true;
       message = "Vault location updated.";
     } catch (err) {
       error = err?.message || String(err);
@@ -74,10 +77,12 @@
         auto_archive_done: autoArchiveDone,
         auto_archive_days: Math.max(1, Number(autoArchiveDays) || 7),
         stale_1on1_days: Math.max(1, Number(stale1on1Days) || 14),
+        spell_check: spellCheckEnabled,
       });
       autoArchiveDone = saved.auto_archive_done;
       autoArchiveDays = saved.auto_archive_days;
       stale1on1Days = saved.stale_1on1_days;
+      spellCheckEnabled = saved.spell_check ?? true;
       tasks.set(await listTasks());
       message = "Settings updated.";
     } catch (err) {
@@ -87,12 +92,34 @@
     }
   }
 
+  async function saveSpellCheck() {
+    savingSpellCheck = true;
+    error = "";
+    message = "";
+    try {
+      const saved = await saveAppSettings({
+        auto_archive_done: autoArchiveDone,
+        auto_archive_days: Math.max(1, Number(autoArchiveDays) || 7),
+        stale_1on1_days: Math.max(1, Number(stale1on1Days) || 14),
+        spell_check: spellCheckEnabled,
+      });
+      spellCheckEnabled = saved.spell_check ?? true;
+      spellCheck.set(spellCheckEnabled);
+      message = "Settings updated.";
+    } catch (err) {
+      error = err?.message || String(err);
+    } finally {
+      savingSpellCheck = false;
+    }
+  }
+
   onMount(async () => {
     try {
       const settings = await getAppSettings();
       autoArchiveDone = settings.auto_archive_done;
       autoArchiveDays = settings.auto_archive_days;
       stale1on1Days = settings.stale_1on1_days;
+      spellCheckEnabled = settings.spell_check ?? true;
     } catch (err) {
       error = err?.message || String(err);
     }
@@ -173,6 +200,25 @@
     </div>
     <div class="card-copy">
       The dashboard will surface people whose last logged 1:1 is older than this threshold, plus anyone with no 1:1 logged yet.
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <div class="mono-label">EDITOR</div>
+        <div class="card-title">Text editing</div>
+      </div>
+      <button class="ghost-btn" onclick={saveSpellCheck} disabled={savingSpellCheck}>
+        {savingSpellCheck ? "Saving…" : "Save setting"}
+      </button>
+    </div>
+    <label class="toggle-row">
+      <input type="checkbox" bind:checked={spellCheckEnabled} />
+      <span>Enable spell check and autocorrect</span>
+    </label>
+    <div class="card-copy">
+      When disabled, the app won't underline or auto-correct your text. Useful if autocorrect is disruptive when typing names and short notes.
     </div>
   </section>
 

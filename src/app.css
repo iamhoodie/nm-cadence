@@ -24,8 +24,8 @@
   --ok: #5b8a5e;
   --ok-tint: #e4ede2;
 
-  --serif: "Newsreader", Georgia, serif;
-  --sans: "Helvetica Neue", Arial, sans-serif;
+  --serif: "Roboto", "Helvetica Neue", Arial, sans-serif;
+  --sans: "Roboto", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 
   --radius: 12px;

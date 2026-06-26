@@ -1,8 +1,8 @@
 <script>
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { screen, people, tasks, folders, vaultPath, selectedSlug, fireAppAction } from "./lib/stores.js";
-  import { listPeople, listTasks, getVaultPath, listFolders, listenToMenuActions } from "./lib/api.js";
+  import { screen, people, tasks, folders, vaultPath, selectedSlug, fireAppAction, spellCheck } from "./lib/stores.js";
+  import { listPeople, listTasks, getVaultPath, listFolders, listenToMenuActions, getAppSettings } from "./lib/api.js";
   import Sidebar from "./lib/components/Sidebar.svelte";
   import DashboardView from "./lib/components/DashboardView.svelte";
   import PeopleView from "./lib/components/PeopleView.svelte";
@@ -18,8 +18,36 @@
     folders.set(await listFolders());
   }
 
+  const SPELL_SELECTOR = 'input[type="text"], input[type="search"], input:not([type]), textarea';
+
+  function applySpellcheck(root, enabled) {
+    const targets =
+      root === document.body
+        ? root.querySelectorAll(SPELL_SELECTOR)
+        : [
+            ...(root.matches?.(SPELL_SELECTOR) ? [root] : []),
+            ...(root.querySelectorAll?.(SPELL_SELECTOR) ?? []),
+          ];
+    for (const el of targets) {
+      el.spellcheck = enabled;
+      el.setAttribute("autocorrect", enabled ? "on" : "off");
+    }
+  }
+
   onMount(() => {
     refresh();
+    getAppSettings().then((s) => spellCheck.set(s.spell_check ?? true));
+
+    const observer = new MutationObserver((mutations) => {
+      const enabled = get(spellCheck);
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) applySpellcheck(node, enabled);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const unsubSpell = spellCheck.subscribe((enabled) => applySpellcheck(document.body, enabled));
 
     let disposed = false;
     let unlisten = () => {};
@@ -70,6 +98,8 @@
     return () => {
       disposed = true;
       unlisten();
+      observer.disconnect();
+      unsubSpell();
     };
   });
 </script>

@@ -24,6 +24,7 @@
   let newFolderName = $state("");
   let folderColor = $state(GROUP_COLORS[0]);
   let editingFolderName = $state("");
+  let excludeCheckin = $state(false);
   let customFolderColorInput = $state();
   function loadCollapsed() {
     try {
@@ -108,10 +109,10 @@
       return;
     }
     if (editingFolderName) {
-      await updateFolder(editingFolderName, name, folderColor);
+      await updateFolder(editingFolderName, name, folderColor, excludeCheckin);
       folders.update((list) =>
         list.map((folder) =>
-          folder.name === editingFolderName ? { ...folder, name, color: folderColor } : folder
+          folder.name === editingFolderName ? { ...folder, name, color: folderColor, exclude_checkin: excludeCheckin } : folder
         )
       );
       people.update((list) =>
@@ -120,8 +121,8 @@
         )
       );
     } else {
-      await createFolder(name, folderColor);
-      folders.update((list) => [...list, { name, color: folderColor }]);
+      await createFolder(name, folderColor, excludeCheckin);
+      folders.update((list) => [...list, { name, color: folderColor, exclude_checkin: excludeCheckin }]);
     }
     addingFolder = false;
     newFolderName = "";
@@ -171,6 +172,7 @@
     editingFolderName = "";
     newFolderName = "";
     folderColor = GROUP_COLORS[0];
+    excludeCheckin = false;
   }
 
   function openEditFolderModal(name) {
@@ -179,6 +181,7 @@
     editingFolderName = name;
     newFolderName = name;
     folderColor = folderColorForGroup(name);
+    excludeCheckin = $folders.find((f) => f.name === name)?.exclude_checkin ?? false;
   }
 
   async function reorderGroupToTarget(dragKey, targetKey) {
@@ -658,6 +661,13 @@
         <input bind:this={customFolderColorInput} class="hidden-color-input" type="color" bind:value={folderColor} />
       </div>
       <div class="group-modal-field">
+        <span>CHECK-IN</span>
+        <label class="group-toggle-row">
+          <input type="checkbox" bind:checked={excludeCheckin} />
+          <span>Exclude from dashboard check-in reminders</span>
+        </label>
+      </div>
+      <div class="group-modal-field">
         <span>PREVIEW</span>
         <div class="group-preview-card">
           <div class="group-preview-row">
@@ -1108,6 +1118,16 @@
     font-size: 13px;
     background: var(--card);
     color: var(--ink);
+  }
+  .group-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--sans);
+    font-size: 12px;
+    letter-spacing: 0;
+    color: var(--ink-2);
+    cursor: pointer;
   }
   .folder-form-btns {
     display: flex;

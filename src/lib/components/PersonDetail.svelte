@@ -61,7 +61,6 @@
   let formGroup = $state("");
 
   let editorElement = $state();
-  let colorInput = $state();
   let confirmState = $state(null);
   let handledActionToken = $state(0);
   let highlightedConversationKey = $state("");
@@ -116,12 +115,6 @@
   function runEditor(command, value = null) {
     editorElement?.focus();
     document.execCommand(command, false, value);
-    syncStateFromEditor();
-  }
-
-  function formatBlock(tag) {
-    editorElement?.focus();
-    document.execCommand("formatBlock", false, tag);
     syncStateFromEditor();
   }
 
@@ -504,9 +497,10 @@
               <button class="tool-btn" title="Italic" aria-label="Italic" onclick={() => runEditor("italic")}><em>I</em></button>
               <button class="tool-btn" title="Underline" aria-label="Underline" onclick={() => runEditor("underline")}><u>U</u></button>
               <div class="tool-sep"></div>
-              <button class="tool-btn" title="Heading 2" aria-label="Heading 2" onclick={() => formatBlock("H2")}>H2</button>
-              <button class="tool-btn" title="Heading 3" aria-label="Heading 3" onclick={() => formatBlock("H3")}>H3</button>
-              <button class="tool-btn" title="Paragraph" aria-label="Paragraph" onclick={() => formatBlock("P")}>¶</button>
+              <button class="tool-btn" title="Normal text" aria-label="Normal text" onclick={() => runEditor("formatBlock", "p")}>¶</button>
+              <button class="tool-btn" title="Heading 1" aria-label="Heading 1" onclick={() => runEditor("formatBlock", "h1")}>H1</button>
+              <button class="tool-btn" title="Heading 2" aria-label="Heading 2" onclick={() => runEditor("formatBlock", "h2")}>H2</button>
+              <button class="tool-btn" title="Heading 3" aria-label="Heading 3" onclick={() => runEditor("formatBlock", "h3")}>H3</button>
               <div class="tool-sep"></div>
               <button class="tool-btn" title="Bulleted list" aria-label="Bulleted list" onclick={() => runEditor("insertUnorderedList")}>• List</button>
               <div class="tool-sep"></div>
@@ -516,7 +510,6 @@
                   <span class="tool-color-copy">Font color</span>
                 </span>
                 <input
-                  bind:this={colorInput}
                   class="tool-color-input"
                   type="color"
                   value="#000000"
@@ -767,12 +760,14 @@
     color: var(--over);
   }
   .title {
-    font-family: var(--serif);
+    font-family: var(--sans);
     font-size: 20px;
+    font-weight: 700;
     margin-bottom: 8px;
   }
   .prose {
     font-size: 14px;
+    font-weight: 300;
     line-height: 1.7;
     color: #56514a;
     margin-bottom: 12px;
@@ -1096,6 +1091,8 @@
     border-radius: 10px;
     padding: 14px;
     background: #fffdf9;
+    font-family: var(--sans);
+    font-weight: 300;
     font-size: 15px;
     line-height: 1.7;
     color: var(--ink);
@@ -1195,6 +1192,11 @@
     outline: none;
     border-color: var(--accent);
   }
+  .rich-editor :global(p),
+  .rich-editor :global(div) { margin: 0; }
+  .rich-editor :global(h1) { font-size: 22px; font-weight: 700; margin: 10px 0 4px; line-height: 1.3; }
+  .rich-editor :global(h2) { font-size: 18px; font-weight: 600; margin: 8px 0 3px; line-height: 1.3; }
+  .rich-editor :global(h3) { font-size: 15px; font-weight: 600; margin: 6px 0 2px; line-height: 1.3; }
   .rich-editor :global(img) {
     max-width: 100%;
     border-radius: 12px;

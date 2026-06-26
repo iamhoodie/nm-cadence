@@ -35,6 +35,8 @@ pub struct Folder {
     pub name: String,
     #[serde(default)]
     pub color: String,
+    #[serde(default)]
+    pub exclude_checkin: bool,
 }
 
 /// A person, assembled from one `people/<slug>.md` file.
@@ -81,6 +83,8 @@ pub struct AppSettings {
     pub auto_archive_days: u32,
     #[serde(default = "default_stale_1on1_days")]
     pub stale_1on1_days: u32,
+    #[serde(default = "default_true")]
+    pub spell_check: bool,
 }
 
 fn default_true() -> bool {
@@ -101,6 +105,7 @@ impl Default for AppSettings {
             auto_archive_done: true,
             auto_archive_days: default_archive_days(),
             stale_1on1_days: default_stale_1on1_days(),
+            spell_check: true,
         }
     }
 }

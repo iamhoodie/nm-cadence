@@ -3,6 +3,7 @@ import { writable } from "svelte/store";
 // "dashboard" | "people" | "person" | "tasks" | "conversations" | "today" | "settings"
 export const screen = writable("dashboard");
 export const sidebarCollapsed = writable(false);
+export const spellCheck = writable(true);
 
 export function toggleSidebar() {
   sidebarCollapsed.update((v) => {

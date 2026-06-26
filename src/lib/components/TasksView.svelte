@@ -55,12 +55,6 @@
     syncDescFromEditor();
   }
 
-  function formatDescBlock(tag) {
-    descEditorElement?.focus();
-    document.execCommand("formatBlock", false, tag);
-    syncDescFromEditor();
-  }
-
   function openView(index) {
     if (dragMoved) { dragMoved = false; return; }
     viewingIndex = index;
@@ -942,9 +936,10 @@
           <button type="button" class="tool-btn" title="Italic" aria-label="Italic" onclick={() => runDescEditor("italic")}><em>I</em></button>
           <button type="button" class="tool-btn" title="Underline" aria-label="Underline" onclick={() => runDescEditor("underline")}><u>U</u></button>
           <div class="tool-sep"></div>
-          <button type="button" class="tool-btn" title="Heading 2" aria-label="Heading 2" onclick={() => formatDescBlock("H2")}>H2</button>
-          <button type="button" class="tool-btn" title="Heading 3" aria-label="Heading 3" onclick={() => formatDescBlock("H3")}>H3</button>
-          <button type="button" class="tool-btn" title="Paragraph" aria-label="Paragraph" onclick={() => formatDescBlock("P")}>¶</button>
+          <button type="button" class="tool-btn" title="Normal text" aria-label="Normal text" onclick={() => runDescEditor("formatBlock", "p")}>¶</button>
+          <button type="button" class="tool-btn" title="Heading 1" aria-label="Heading 1" onclick={() => runDescEditor("formatBlock", "h1")}>H1</button>
+          <button type="button" class="tool-btn" title="Heading 2" aria-label="Heading 2" onclick={() => runDescEditor("formatBlock", "h2")}>H2</button>
+          <button type="button" class="tool-btn" title="Heading 3" aria-label="Heading 3" onclick={() => runDescEditor("formatBlock", "h3")}>H3</button>
           <div class="tool-sep"></div>
           <button type="button" class="tool-btn" title="Bulleted list" aria-label="Bulleted list" onclick={() => runDescEditor("insertUnorderedList")}>• List</button>
           <div class="tool-sep"></div>
@@ -1855,6 +1850,8 @@
     border-radius: 10px;
     padding: 14px;
     background: #fffdf9;
+    font-family: var(--sans);
+    font-weight: 300;
     font-size: 15px;
     line-height: 1.7;
     color: var(--ink);
@@ -1863,9 +1860,11 @@
     outline: none;
     border-color: var(--accent);
   }
-  .desc-editor :global(p) { margin: 0 0 6px; }
-  .desc-editor :global(h2) { font-size: 16px; font-weight: 600; margin: 8px 0 4px; }
-  .desc-editor :global(h3) { font-size: 14px; font-weight: 600; margin: 6px 0 3px; }
+  .desc-editor :global(p),
+  .desc-editor :global(div) { margin: 0; }
+  .desc-editor :global(h1) { font-size: 20px; font-weight: 700; margin: 8px 0 3px; line-height: 1.3; }
+  .desc-editor :global(h2) { font-size: 16px; font-weight: 600; margin: 6px 0 2px; line-height: 1.3; }
+  .desc-editor :global(h3) { font-size: 14px; font-weight: 600; margin: 5px 0 2px; line-height: 1.3; }
   .desc-editor :global(ul) { margin: 0 0 6px; padding-left: 20px; }
   .desc-editor :global(li) { margin-bottom: 2px; }
   .due-time-row {

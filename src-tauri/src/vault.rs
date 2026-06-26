@@ -482,6 +482,7 @@ pub fn list_folders(vault: &Path) -> io::Result<Vec<Folder>> {
                             Some(Folder {
                                 name,
                                 color: "#6b7d9c".to_string(),
+                                exclude_checkin: false,
                             })
                         }
                     }
@@ -493,6 +494,7 @@ pub fn list_folders(vault: &Path) -> io::Result<Vec<Folder>> {
                             Some(Folder {
                                 name,
                                 color: normalize_folder_color(&folder.color),
+                                exclude_checkin: folder.exclude_checkin,
                             })
                         }
                     }
@@ -509,7 +511,7 @@ fn write_folders(vault: &Path, folders: &[Folder]) -> io::Result<()> {
     fs::write(folders_file(vault), json)
 }
 
-pub fn create_folder(vault: &Path, name: &str, color: &str) -> io::Result<()> {
+pub fn create_folder(vault: &Path, name: &str, color: &str, exclude_checkin: bool) -> io::Result<()> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Ok(());
@@ -521,6 +523,7 @@ pub fn create_folder(vault: &Path, name: &str, color: &str) -> io::Result<()> {
     folders.push(Folder {
         name,
         color: normalize_folder_color(color),
+        exclude_checkin,
     });
     write_folders(vault, &folders)
 }
@@ -531,7 +534,7 @@ pub fn delete_folder(vault: &Path, name: &str) -> io::Result<()> {
     write_folders(vault, &folders)
 }
 
-pub fn update_folder(vault: &Path, name: &str, next_name: &str, color: &str) -> io::Result<()> {
+pub fn update_folder(vault: &Path, name: &str, next_name: &str, color: &str, exclude_checkin: bool) -> io::Result<()> {
     let next_name = next_name.trim();
     if next_name.is_empty() {
         return Ok(());
@@ -548,6 +551,7 @@ pub fn update_folder(vault: &Path, name: &str, next_name: &str, color: &str) -> 
     if let Some(folder) = folders.iter_mut().find(|folder| folder.name == name) {
         folder.name = next_name.to_string();
         folder.color = normalize_folder_color(color);
+        folder.exclude_checkin = exclude_checkin;
     }
     write_folders(vault, &folders)?;
 
