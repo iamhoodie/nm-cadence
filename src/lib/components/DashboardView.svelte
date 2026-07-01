@@ -18,6 +18,8 @@
   import { getAppSettings } from "../api.js";
 
   let stale1on1Days = $state(14);
+  let dashTab = $state("overview");
+  let todayAnchor = $state(startOfDay(new Date()));
 
   function parseIsoDate(iso) {
     if (!iso) return null;
@@ -66,11 +68,11 @@
     return `${label} ${hour12}:${String(minutes).padStart(2, "0")} ${meridiem}`;
   }
 
-  function daysSinceLastMet(person) {
+  function daysSinceLastMet(person, today = startOfDay(new Date())) {
     if (!person?.last_met) return Number.POSITIVE_INFINITY;
     const parsed = new Date(String(person.last_met).replace(" ", "T"));
     if (Number.isNaN(parsed.getTime())) return Number.POSITIVE_INFINITY;
-    return Math.round((startOfDay(new Date()) - startOfDay(parsed)) / 86400000);
+    return Math.round((today - startOfDay(parsed)) / 86400000);
   }
 
   const actionableTasks = $derived(
@@ -79,7 +81,7 @@
 
   const dashboardTaskBuckets = $derived.by(() => {
     const now = new Date();
-    const today = startOfDay(now);
+    const today = todayAnchor;
     const weekEnd = new Date(today);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
@@ -114,11 +116,12 @@
     return { overdue, today: todayItems, thisWeek };
   });
 
-  const stalePeople = $derived(
-    $people
+  const stalePeople = $derived.by(() => {
+    const today = todayAnchor;
+    return $people
       .map((person) => ({
         ...person,
-        staleDays: daysSinceLastMet(person),
+        staleDays: daysSinceLastMet(person, today),
       }))
       .filter((person) => {
         if ($folders.find((f) => f.name === person.group)?.exclude_checkin) return false;
@@ -129,8 +132,26 @@
         if (!a.last_met) return -1;
         if (!b.last_met) return 1;
         return b.staleDays - a.staleDays;
+      });
+  });
+
+  const upcomingBirthdays = $derived.by(() => {
+    const today = todayAnchor;
+    return $people
+      .filter((p) => p.birthday)
+      .map((p) => {
+        const [month, day] = p.birthday.split("-").map(Number);
+        let next = new Date(today.getFullYear(), month - 1, day);
+        if (next < today) next = new Date(today.getFullYear() + 1, month - 1, day);
+        const daysUntil = Math.round((next - today) / 86400000);
+        return { ...p, daysUntil, nextDate: next };
       })
-  );
+      .sort((a, b) => a.daysUntil - b.daysUntil);
+  });
+
+  function formatNextBirthday(p) {
+    return p.nextDate.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  }
 
   function openPerson(slug) {
     selectedSlug.set(slug);
@@ -149,6 +170,12 @@
     } catch {
       stale1on1Days = 14;
     }
+
+    function refreshToday() {
+      if (!document.hidden) todayAnchor = startOfDay(new Date());
+    }
+    document.addEventListener("visibilitychange", refreshToday);
+    return () => document.removeEventListener("visibilitychange", refreshToday);
   });
 </script>
 
@@ -164,10 +191,21 @@
       <p>See what needs attention this week</p>
     </div>
   </div>
-  <div class="header-date">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div>
+  <div class="header-date">{todayAnchor.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div>
 </header>
 
+<div class="dash-tabs">
+  <button class="dash-tab" class:dash-tab--active={dashTab === "overview"} onclick={() => (dashTab = "overview")}>Overview</button>
+  <button class="dash-tab" class:dash-tab--active={dashTab === "birthdays"} onclick={() => (dashTab = "birthdays")}>
+    Birthdays
+    {#if upcomingBirthdays.filter((p) => p.daysUntil <= 7).length}
+      <span class="dash-tab-badge">{upcomingBirthdays.filter((p) => p.daysUntil <= 7).length}</span>
+    {/if}
+  </button>
+</div>
+
 <div class="body">
+{#if dashTab === "overview"}
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -266,6 +304,39 @@
       </div>
     {/if}
   </section>
+{:else}
+  <section class="panel panel--grow">
+    <div class="panel-head">
+      <div class="panel-title">Upcoming birthdays</div>
+    </div>
+    {#if upcomingBirthdays.length}
+      <div class="people-list">
+        {#each upcomingBirthdays as person}
+          <button class="person-row" onclick={() => openPerson(person.slug)}>
+            <span class="person-avatar" style="background:{colorForPerson(person, $folders)}">{initials(person.name)}</span>
+            <span class="person-copy">
+              <span class="person-name">{person.name}</span>
+              <span class="person-meta">
+                {formatNextBirthday(person)}
+                {#if person.daysUntil === 0}
+                  · <strong class="birthday-today">Today! 🎂</strong>
+                {:else if person.daysUntil === 1}
+                  · Tomorrow
+                {:else}
+                  · In {person.daysUntil} days
+                {/if}
+              </span>
+            </span>
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <div class="empty-large">
+        <div class="empty-sub">No birthdays added yet. Edit a person's profile to add their birthday.</div>
+      </div>
+    {/if}
+  </section>
+{/if}
 </div>
 
 <style>
@@ -286,6 +357,40 @@
     font-size: 14px;
     color: var(--faint);
   }
+  .dash-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 10px 32px 0;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .dash-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-family: var(--sans);
+    color: var(--muted-2);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    border-radius: 6px 6px 0 0;
+  }
+  .dash-tab:hover { color: var(--ink); background: #f5efe6; }
+  .dash-tab--active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 500; }
+  .dash-tab-badge {
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 1px 6px;
+    line-height: 1.4;
+  }
+  .birthday-today { color: var(--accent); }
   .sidebar-toggle-btn {
     border: 1px solid var(--line);
     background: rgba(251, 247, 240, 0.94);

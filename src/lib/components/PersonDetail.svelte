@@ -59,6 +59,14 @@
   let formRole = $state("");
   let formBio = $state("");
   let formGroup = $state("");
+  let formBirthday = $state("");
+
+  let birthdayPickerOpen = $state(false);
+  let birthdayPickerPos = $state({ bottom: 0, left: 0 });
+  let birthdayBtnEl = $state();
+  let birthdayVisibleMonth = $state("2000-01");
+
+  const birthdayCalDays = $derived(buildBirthdayCalDays(birthdayVisibleMonth));
 
   let editorElement = $state();
   let confirmState = $state(null);
@@ -68,6 +76,69 @@
   let conversationAnchorVersion = $state(0);
   let notesElement = $state();
   const conversationNodes = new Map();
+
+  function formatBirthday(mmdd) {
+    if (!mmdd) return "";
+    const [m, d] = mmdd.split("-").map(Number);
+    if (!m || !d) return mmdd;
+    return new Date(2000, m - 1, d).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  }
+
+  function parseBirthdayIso(iso) {
+    if (!iso) return null;
+    const [y, m, d] = iso.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  }
+
+  function formatBirthdayIso(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function startOfBirthdayMonth(iso) {
+    const d = parseBirthdayIso(iso) || new Date(2000, 0, 1);
+    return formatBirthdayIso(new Date(d.getFullYear(), d.getMonth(), 1));
+  }
+
+  function birthdayMonthLabel(iso) {
+    const d = parseBirthdayIso(iso) || new Date(2000, 0, 1);
+    return d.toLocaleDateString("en-US", { month: "long" });
+  }
+
+  function shiftBirthdayMonth(iso, delta) {
+    const d = parseBirthdayIso(iso) || new Date(2000, 0, 1);
+    return formatBirthdayIso(new Date(d.getFullYear(), d.getMonth() + delta, 1));
+  }
+
+  function buildBirthdayCalDays(monthIso) {
+    const monthStart = parseBirthdayIso(monthIso) || new Date(2000, 0, 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(1 - monthStart.getDay());
+    return Array.from({ length: 42 }, (_, i) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + i);
+      return {
+        iso: formatBirthdayIso(date),
+        label: String(date.getDate()),
+        inMonth: date.getMonth() === monthStart.getMonth(),
+      };
+    });
+  }
+
+  function toggleBirthdayPicker() {
+    const mmdd = formBirthday;
+    birthdayVisibleMonth = mmdd ? `2000-${mmdd}` : "2000-01";
+    if (!birthdayPickerOpen && birthdayBtnEl) {
+      const rect = birthdayBtnEl.getBoundingClientRect();
+      birthdayPickerPos = { bottom: window.innerHeight - rect.top + 6, left: rect.left };
+    }
+    birthdayPickerOpen = !birthdayPickerOpen;
+  }
+
+  function selectBirthday(iso) {
+    formBirthday = iso.slice(5); // keep only MM-DD
+    birthdayPickerOpen = false;
+  }
 
   function currentDateTimeValue() {
     const now = new Date();
@@ -190,6 +261,7 @@
     formRole = person.role || "";
     formBio = person.bio || "";
     formGroup = person.group || "";
+    formBirthday = person.birthday || "";
   }
 
   async function savePersonEdits() {
@@ -200,6 +272,7 @@
       bio: formBio.trim(),
       color: person.color,
       group: formGroup.trim(),
+      birthday: formBirthday.trim(),
     });
     people.update((list) => list.map((item) => (item.slug === updated.slug ? updated : item)));
     editingPerson = false;
@@ -420,6 +493,12 @@
         <div class="mono-label">PROFILE</div>
         <button class="ghost-btn-sm" onclick={beginEditPerson}>Edit</button>
       </div>
+      {#if person.birthday}
+        <div class="meta-block">
+          <div class="mono-label">BIRTHDAY</div>
+          <div class="bio">{formatBirthday(person.birthday)}</div>
+        </div>
+      {/if}
       <div class="meta-block">
         <div class="mono-label">BIO</div>
         <div class="bio">{person.bio || "No bio yet."}</div>
@@ -453,6 +532,15 @@
         <label class="field"><span>NAME</span><input bind:value={formName} /></label>
         <label class="field"><span>ROLE</span><input bind:value={formRole} /></label>
         <label class="field"><span>BIO</span><textarea bind:value={formBio} rows="6"></textarea></label>
+        <div class="field">
+          <span>BIRTHDAY</span>
+          <button class="date-input-wrap" bind:this={birthdayBtnEl} onclick={toggleBirthdayPicker} aria-expanded={birthdayPickerOpen}>
+            <span class="date-input-icon" aria-hidden="true">🎂</span>
+            <span class:date-input-empty={!formBirthday} class="date-input-label">
+              {formatBirthday(formBirthday) || "No birthday set"}
+            </span>
+          </button>
+        </div>
         <label class="field">
           <span>FOLDER</span>
           <select bind:value={formGroup}>
@@ -473,6 +561,37 @@
           <button class="solid-btn" onclick={savePersonEdits} disabled={!formName.trim()}>Save</button>
         </div>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if birthdayPickerOpen}
+  <button class="date-portal-backdrop" onclick={() => (birthdayPickerOpen = false)} aria-label="Close birthday picker"></button>
+  <div class="date-popover date-popover--fixed" style="bottom:{birthdayPickerPos.bottom}px;left:{birthdayPickerPos.left}px;">
+    <div class="date-popover-head">
+      <button class="date-nav-btn" onclick={() => (birthdayVisibleMonth = shiftBirthdayMonth(birthdayVisibleMonth, -1))} aria-label="Previous month">‹</button>
+      <div class="date-month-label">{birthdayMonthLabel(birthdayVisibleMonth)}</div>
+      <button class="date-nav-btn" onclick={() => (birthdayVisibleMonth = shiftBirthdayMonth(birthdayVisibleMonth, 1))} aria-label="Next month">›</button>
+    </div>
+    <div class="date-weekdays">
+      {#each ["S", "M", "T", "W", "T", "F", "S"] as wd}
+        <span>{wd}</span>
+      {/each}
+    </div>
+    <div class="date-grid">
+      {#each birthdayCalDays as day}
+        <button
+          class="date-day"
+          class:date-day--muted={!day.inMonth}
+          class:date-day--selected={day.iso.slice(5) === formBirthday}
+          onclick={() => selectBirthday(day.iso)}
+        >
+          {day.label}
+        </button>
+      {/each}
+    </div>
+    <div class="date-popover-actions">
+      <button class="text-btn-sm" onclick={() => { formBirthday = ""; birthdayPickerOpen = false; }}>Clear</button>
     </div>
   </div>
 {/if}
@@ -922,6 +1041,58 @@
     background-repeat: no-repeat;
     padding-right: 34px;
   }
+  .date-input-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 9px 11px;
+    height: 38px;
+    box-sizing: border-box;
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+  }
+  .date-input-wrap:hover,
+  .date-input-wrap[aria-expanded="true"] { background: #f7f2ea; }
+  .date-input-icon { color: var(--muted-2); font-size: 14px; line-height: 1; flex: none; }
+  .date-input-label { flex: 1; font-size: 14px; font-family: var(--serif); color: var(--ink); }
+  .date-input-empty { color: var(--faint); }
+  .date-portal-backdrop { position: fixed; inset: 0; z-index: 149; border: none; padding: 0; background: transparent; cursor: default; }
+  .date-popover {
+    z-index: 150;
+    width: 240px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--paper);
+    box-shadow: 0 12px 32px rgba(44, 42, 38, 0.16);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .date-popover--fixed { position: fixed; }
+  .date-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .date-nav-btn {
+    width: 22px; height: 22px;
+    border: 1px solid var(--line-2); border-radius: 6px;
+    background: var(--card); color: var(--ink);
+    cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .date-nav-btn:hover { background: #f2ebdf; }
+  .date-month-label { font-family: var(--serif); font-size: 12px; color: var(--ink); }
+  .date-weekdays, .date-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; }
+  .date-weekdays span { text-align: center; font-family: var(--mono); font-size: 7px; letter-spacing: 0.04em; color: var(--faint); padding: 2px 0; }
+  .date-day { aspect-ratio: 1; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--ink); font-size: 10px; cursor: pointer; }
+  .date-day:hover { background: #f2ebdf; }
+  .date-day--muted { color: #b0a89b; }
+  .date-day--selected { background: var(--accent); color: white; border-color: var(--accent); }
+  .date-popover-actions { display: flex; justify-content: flex-start; align-items: center; }
+  .text-btn-sm { border: none; background: transparent; color: var(--muted); font-size: 12px; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+  .text-btn-sm:hover { color: var(--ink); }
   .toolbar,
   .modal-foot,
   .foot-right {
@@ -1223,10 +1394,6 @@
     place-items: center;
     cursor: pointer;
     flex: none;
-  }
-  .icon-btn svg {
-    width: 16px;
-    height: 16px;
   }
   .icon-btn:hover {
     color: var(--ink);

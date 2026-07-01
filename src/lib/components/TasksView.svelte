@@ -3,7 +3,7 @@
   import ConfirmModal from "./ConfirmModal.svelte";
   import TaskCard from "./TaskCard.svelte";
   import { Trash2, ChevronLeft, ChevronRight } from "lucide-svelte";
-  import { appAction, clearAppAction, tasks, people, folders, priorityColor, daysSince, dayLabel, initials, colorForPerson, sidebarCollapsed, toggleSidebar, selectedTaskTitle } from "../stores.js";
+  import { appAction, clearAppAction, tasks, people, folders, priorityColor, daysSince, dayLabel, initials, colorForPerson, sidebarCollapsed, toggleSidebar, selectedTaskTitle, screen, selectedSlug } from "../stores.js";
   import { saveTasks } from "../api.js";
 
   const columns = [
@@ -88,6 +88,17 @@
     return map;
   });
 
+  // Keyed by "MM-DD" for calendar birthday display
+  const birthdaysByMMDD = $derived.by(() => {
+    const map = new Map();
+    $people.forEach((p) => {
+      if (!p.birthday) return;
+      if (!map.has(p.birthday)) map.set(p.birthday, []);
+      map.get(p.birthday).push(p);
+    });
+    return map;
+  });
+
   function buildMonthGrid(isoMonth) {
     const first = parseIsoDate(isoMonth) || new Date();
     const year = first.getFullYear();
@@ -139,6 +150,7 @@
   let confirmState = $state(null);
   let handledActionToken = $state(0);
   let pointerDrag = $state(null);
+  let showBirthdays = $state(true);
 
   // Task highlight (from dashboard navigation)
   let highlightedTitle = $state("");
@@ -689,6 +701,12 @@
       <button class="cal-nav-btn" onclick={() => (calMonth = shiftMonth(calMonth, -1))}>‹</button>
       <span class="cal-month-label">{monthLabel(calMonth)}</span>
       <button class="cal-nav-btn" onclick={() => (calMonth = shiftMonth(calMonth, 1))}>›</button>
+      <button
+        class="cal-birthday-toggle"
+        class:cal-birthday-toggle--on={showBirthdays}
+        onclick={() => (showBirthdays = !showBirthdays)}
+        title={showBirthdays ? "Hide birthdays" : "Show birthdays"}
+      >🎂 Birthdays</button>
     </div>
     <div class="cal-weekdays">
       {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as wd}
@@ -699,6 +717,7 @@
       {#each calMonthGrid as week}
         {#each week as cell}
           {@const dayTasks = tasksByDate.get(cell.iso) || []}
+          {@const dayBirthdays = showBirthdays ? (birthdaysByMMDD.get(cell.iso.slice(5)) || []) : []}
           <div
             class="cal-cell"
             class:cal-cell--out={!cell.inMonth}
@@ -710,6 +729,15 @@
           >
             <div class="cal-day-num">{cell.label}</div>
             <div class="cal-task-list">
+              {#each dayBirthdays as person}
+                <button
+                  class="cal-birthday-chip"
+                  onclick={(e) => { e.stopPropagation(); selectedSlug.set(person.slug); screen.set("person"); }}
+                  title="{person.name}'s birthday"
+                >
+                  🎂 {person.name}
+                </button>
+              {/each}
               {#each dayTasks as { task, index }}
                 <button
                   class="cal-task-chip"
@@ -1320,9 +1348,25 @@
   .cal-nav {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     flex-shrink: 0;
   }
+  .cal-nav > .cal-month-label {
+    flex: 1;
+    text-align: center;
+  }
+  .cal-birthday-toggle {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--muted-2);
+    font-size: 12px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .cal-birthday-toggle:hover { background: #f2ebe0; color: var(--ink); }
+  .cal-birthday-toggle--on { background: #fdf3e8; color: var(--accent); border-color: #e8c98a; }
   .cal-nav-btn {
     width: 32px;
     height: 32px;
@@ -1422,6 +1466,24 @@
     font-family: inherit;
   }
   .cal-task-chip:hover { background: #ede6d8; }
+  .cal-birthday-chip {
+    width: 100%;
+    text-align: left;
+    font-size: 11px;
+    line-height: 1.3;
+    color: #7a4f2a;
+    background: #fdf3e8;
+    border: 1px solid #e8c98a;
+    border-radius: 5px;
+    padding: 3px 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    font-family: inherit;
+  }
+  .cal-birthday-chip:hover { background: #fde8c6; }
   .cal-task-chip--done {
     text-decoration: line-through;
     color: var(--muted-2);

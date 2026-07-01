@@ -140,15 +140,15 @@ export async function deletePerson(slug) {
   return invoke("delete_person", { slug });
 }
 
-export async function updatePerson(slug, { name, role, bio, color, group }) {
+export async function updatePerson(slug, { name, role, bio, color, group, birthday = "" }) {
   if (!inTauri) {
     const idx = mockPeople.findIndex((p) => p.slug === slug);
     if (idx >= 0) {
-      mockPeople[idx] = { ...mockPeople[idx], name, role, bio, color, group: group || "" };
+      mockPeople[idx] = { ...mockPeople[idx], name, role, bio, color, group: group || "", birthday: birthday || "" };
     }
     return structuredClone(mockPeople[idx]);
   }
-  return invoke("update_person", { slug, name, role, bio, color, group: group || "" });
+  return invoke("update_person", { slug, name, role, bio, color, group: group || "", birthday: birthday || "" });
 }
 
 export async function deleteConversation(slug, date, title) {

@@ -92,6 +92,7 @@ fn person_from_file(path: &Path) -> io::Result<Person> {
         bio: String::new(),
         color: String::new(),
         group: String::new(),
+        birthday: String::new(),
     });
     Ok(Person {
         slug: slug_from_path(path),
@@ -100,6 +101,7 @@ fn person_from_file(path: &Path) -> io::Result<Person> {
         bio: fm.bio,
         color: fm.color,
         group: fm.group,
+        birthday: fm.birthday,
         last_met,
         conversations,
     })
@@ -563,6 +565,7 @@ pub fn update_folder(vault: &Path, name: &str, next_name: &str, color: &str, exc
             bio: person.bio,
             color: person.color,
             group: next_name.to_string(),
+            birthday: person.birthday,
         };
         update_person(vault, &person.slug, &updated)?;
     }

@@ -28,6 +28,8 @@ pub struct Frontmatter {
     pub color: String,
     #[serde(default)]
     pub group: String,
+    #[serde(default)]
+    pub birthday: String, // "MM-DD" e.g. "06-15"
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -48,6 +50,8 @@ pub struct Person {
     pub bio: String,
     pub color: String,
     pub group: String,
+    #[serde(default)]
+    pub birthday: String, // "MM-DD" e.g. "06-15"
     /// Date of the most recent conversation, if any.
     pub last_met: Option<String>,
     pub conversations: Vec<Conversation>,

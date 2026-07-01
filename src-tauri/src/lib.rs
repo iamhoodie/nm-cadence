@@ -364,6 +364,7 @@ fn create_person(
         bio: String::new(),
         color,
         group,
+        birthday: String::new(),
     };
     let person = vault::create_person(&v, &fm).map_err(|e| e.to_string())?;
     refresh_tray_menu(&app, &tray, &v);
@@ -391,6 +392,7 @@ fn update_person(
     bio: String,
     color: String,
     group: String,
+    birthday: String,
     state: State<AppState>,
     tray: State<TrayState>,
     app: tauri::AppHandle,
@@ -402,6 +404,7 @@ fn update_person(
         bio,
         color,
         group,
+        birthday,
     };
     let person = vault::update_person(&v, &slug, &fm).map_err(|e| e.to_string())?;
     refresh_tray_menu(&app, &tray, &v);
